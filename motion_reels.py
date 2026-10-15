@@ -103,12 +103,16 @@ def build_main_voiceover_text(payload: Dict[str, Any], mode: str) -> str:
             f"Bültenin zirvesinde {featured} karşılaşmaları dikkat çekiyor."
         )
     elif mode == "coupon":
+        if payload.get("voiceover_coupon"):
+            return str(payload["voiceover_coupon"])
         items = payload.get("coupon", [])[:6]
         picks = [f"{c['home']} {c['away']} maçı {c['pick']}" for c in items[:3]]
         picks_str = ", ".join(picks)
         tot = payload.get("total_odd", "")
+        c_title = payload.get("coupon_title", "GÜNÜN BANKO KUPONU")
+        spoken_title = "Günün sürpriz kuponu" if "SÜRPRİZ" in c_title.upper() else "Günün banko kuponu"
         return (
-            f"Günün banko kuponu hazır! "
+            f"{spoken_title} hazır! "
             f"Kuponumuzda {picks_str} seçimleriyle toplam oran {tot}!"
         )
     else:
