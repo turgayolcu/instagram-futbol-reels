@@ -25,6 +25,8 @@ on:
 jobs:
   publish-reels:
     runs-on: ubuntu-latest
+    env:
+      TZ: Europe/Istanbul
     steps:
       - name: Repo Kodlarını Çek
         uses: actions/checkout@v4
@@ -46,10 +48,9 @@ jobs:
           IG_PASSWORD: ${{ secrets.IG_PASSWORD }}
           IG_SESSION_JSON: ${{ secrets.IG_SESSION_JSON }}
         run: |
-          echo "IG_USERNAME=${IG_USERNAME}" > .env
-          echo "IG_PASSWORD=${IG_PASSWORD}" >> .env
+          printf "IG_USERNAME=%s\nIG_PASSWORD=%s\n" "$IG_USERNAME" "$IG_PASSWORD" > .env
           if [ -n "$IG_SESSION_JSON" ]; then
-            echo "$IG_SESSION_JSON" > ig_session.json
+            printf '%s' "$IG_SESSION_JSON" > ig_session.json
           fi
 
       - name: Günün Güncel Maçlarını, Oranlarını ve Sonuçlarını Çek
@@ -60,7 +61,7 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             MODE="${{ github.event.inputs.mode }}"
           else
-            HOUR_UTC=$(date -u +%H)
+            HOUR_UTC=$((10#$(date -u +%H)))
             if [ "$HOUR_UTC" -lt 10 ]; then
               MODE="odds"
             elif [ "$HOUR_UTC" -lt 16 ]; then
