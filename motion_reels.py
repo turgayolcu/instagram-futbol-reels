@@ -1,8 +1,10 @@
 """
-Motion Graphics + Türkçe Spiker Seslendirmeli (edge-tts) + Arka Plan Müzikli
+Motion Graphics + %100 Erkek Türkçe Spiker Seslendirmeli (tr-TR-AhmetNeural) + Arka Plan Müzikli
 Instagram Reels Üretim Motoru (1080x1920 @ 30fps)
 Sabah (odds) ve Öğlen (coupon) videolarının sonunda 2 aşamalı
 "Kayıtlı Bayim (304168)" Motion Graphics rehberi ve seslendirmesi yer alır.
+Tüm bahis kısaltmaları (MS -> Maç Sonu, KG VAR -> Karşılıklı Gol Var, 2.5 ÜST -> 2 Buçuk Üst vb.)
+spiker tarafından doğru Türkçe açılımlarıyla okunur.
 """
 
 import argparse
@@ -10,6 +12,8 @@ import asyncio
 import json
 import math
 import os
+import re
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -24,6 +28,8 @@ DEFAULT_JSON = BASE_DIR / "default_data.json"
 LOGO_PATH = ASSETS_DIR / "iddaa_logo.png"
 OUTRO_STEP1_PATH = ASSETS_DIR / "outro_step1_hesabim.jpg"
 OUTRO_STEP2_PATH = ASSETS_DIR / "outro_step2_bayim.jpg"
+STATIC_OUTRO1_MP3 = ASSETS_DIR / "vo_outro_step1_male.mp3"
+STATIC_OUTRO2_MP3 = ASSETS_DIR / "vo_outro_step2_male.mp3"
 
 WIDTH = 1080
 HEIGHT = 1920
@@ -46,9 +52,9 @@ ALERT_RED_GLOW = (255, 95, 95)
 
 OUTRO_VOICEOVER_STEP1 = (
     "Kral oranlardan faydalanmak için iddaa nokta com'a gir, "
-    "profil ayarlarından Kayıtlı Bayim kısmına tıkla,"
+    "profil ayarlarından Kayıtlı Bayim kısmına tıkla."
 )
-OUTRO_VOICEOVER_STEP2 = "ve fotoğraftaki gibi doldur."
+OUTRO_VOICEOVER_STEP2 = "Ve fotoğraftaki gibi doldur."
 
 
 def ease_out_cubic(x: float) -> float:
@@ -93,56 +99,109 @@ FONTS = {
 }
 
 
+def expand_betting_terms_for_speech(text: str) -> str:
+    """
+    Bahis kısaltmalarını Türkçe spikerin doğru okuyacağı tam ifadelerine çevirir:
+    - MS 1 -> Maç Sonu 1 (asla 'Milattan Sonra' diye okumaz)
+    - MS 2 -> Maç Sonu 2
+    - MS X / MS 0 -> Maç Sonu Beraberlik
+    - KG VAR -> Karşılıklı Gol Var
+    - KG YOK -> Karşılıklı Gol Yok
+    - 2.5 ÜST -> 2 Buçuk Üst
+    - İY -> İlk Yarı
+    """
+    replacements = [
+        (r"\bHMS\s*1\b", "Handikaplı Maç Sonu 1"),
+        (r"\bHMS\s*2\b", "Handikaplı Maç Sonu 2"),
+        (r"\bHMS\s*[X0]\b", "Handikaplı Maç Sonu Beraberlik"),
+        (r"\bMS\s*1\b", "Maç Sonu 1"),
+        (r"\bMS\s*2\b", "Maç Sonu 2"),
+        (r"\bMS\s*[X0]\b", "Maç Sonu Beraberlik"),
+        (r"\bMS\b", "Maç Sonu"),
+        (r"\bİY\s*1\b", "İlk Yarı 1"),
+        (r"\bİY\s*2\b", "İlk Yarı 2"),
+        (r"\bİY\s*[X0]\b", "İlk Yarı Beraberlik"),
+        (r"\bİY\b", "İlk Yarı"),
+        (r"\bKG\s*VAR\b", "Karşılıklı Gol Var"),
+        (r"\bKG\s*YOK\b", "Karşılıklı Gol Yok"),
+        (r"\bKG\b", "Karşılıklı Gol"),
+        (r"\b1[.,]5\s*ÜST\b", "1 Buçuk Üst"),
+        (r"\b1[.,]5\s*ALT\b", "1 Buçuk Alt"),
+        (r"\b2[.,]5\s*ÜST\b", "2 Buçuk Üst"),
+        (r"\b2[.,]5\s*ALT\b", "2 Buçuk Alt"),
+        (r"\b3[.,]5\s*ÜST\b", "3 Buçuk Üst"),
+        (r"\b3[.,]5\s*ALT\b", "3 Buçuk Alt"),
+        (r"\bÇŞ\s*1-X\b", "Çifte Şans 1 Sıfır"),
+        (r"\bÇŞ\s*X-2\b", "Çifte Şans Sıfır 2"),
+        (r"\bÇŞ\s*1-2\b", "Çifte Şans 1 2"),
+        (r"\bTG\b", "Toplam Gol"),
+        (r"\bUnion SG\b", "Union Saint Gilloise"),
+        (r"\bB\.\s*Leverkusen\b", "Bayer Leverkusen"),
+    ]
+    out = text
+    for pattern, repl in replacements:
+        out = re.sub(pattern, repl, out, flags=re.IGNORECASE)
+    # Ondalık oranları (örn. 84.14 -> 84 nokta 14) doğal okut
+    out = re.sub(r"(\d+)\.(\d+)", r"\1 nokta \2", out)
+    return out
+
+
 def build_main_voiceover_text(payload: Dict[str, Any], mode: str) -> str:
     if mode == "odds":
         matches = payload.get("matches", [])[:12]
         top_pairs = [f"{m['home']} - {m['away']}" for m in matches[:3]]
         featured = ", ".join(top_pairs)
-        return (
+        raw = (
             f"Günün maçları ve iddaa oranları belli oldu! "
             f"Bültenin zirvesinde {featured} karşılaşmaları dikkat çekiyor."
         )
+        return expand_betting_terms_for_speech(raw)
     elif mode == "coupon":
         if payload.get("voiceover_coupon"):
-            return str(payload["voiceover_coupon"])
+            return expand_betting_terms_for_speech(str(payload["voiceover_coupon"]))
         items = payload.get("coupon", [])[:6]
-        picks = [f"{c['home']} {c['away']} maçı {c['pick']}" for c in items[:3]]
+        picks = [
+            f"{c['home']} {c['away']} maçı {expand_betting_terms_for_speech(str(c['pick']))}"
+            for c in items[:3]
+        ]
         picks_str = ", ".join(picks)
-        tot = payload.get("total_odd", "")
+        tot = expand_betting_terms_for_speech(str(payload.get("total_odd", "")))
         c_title = payload.get("coupon_title", "GÜNÜN BANKO KUPONU")
         spoken_title = "Günün sürpriz kuponu" if "SÜRPRİZ" in c_title.upper() else "Günün banko kuponu"
-        return (
+        raw = (
             f"{spoken_title} hazır! "
             f"Kuponumuzda {picks_str} seçimleriyle toplam oran {tot}!"
         )
+        return expand_betting_terms_for_speech(raw)
     else:
         matches = payload.get("matches", [])[:12]
-        res_list = [f"{m['home']} {m['score'].replace('-', '')} {m['away']}" for m in matches[:3]]
+        res_list = [f"{m['home']} {m['score'].replace('-', ' ')} {m['away']}" for m in matches[:3]]
         res_str = ", ".join(res_list)
-        return (
+        raw = (
             f"Günün maç sonuçları! "
             f"Bugün tamamlanan karşılaşmalarda {res_str} skorları kaydedildi. "
             f"Tüm maç sonuçları ekranınızda."
         )
+        return expand_betting_terms_for_speech(raw)
 
 
 async def generate_tts(text: str, out_mp3: Path, voice: str = "tr-TR-AhmetNeural") -> None:
-    for attempt in range(4):
+    """
+    Sadece erkek spiker sesi (tr-TR-AhmetNeural) kullanır.
+    Kadın sesi (gTTS) kesinlikle kullanılmaz.
+    """
+    last_err: Optional[Exception] = None
+    for attempt in range(10):
         try:
-            communicate = edge_tts.Communicate(text, voice=voice, rate="+6%")
+            communicate = edge_tts.Communicate(text, voice=voice)
             await communicate.save(str(out_mp3))
-            return
+            if out_mp3.exists() and out_mp3.stat().st_size > 1000:
+                return
         except Exception as e:
-            if attempt == 3:
-                # Fallback to gTTS if edge-tts endpoint is temporarily unreachable
-                try:
-                    from gtts import gTTS
-                    tts = gTTS(text=text, lang="tr", slow=False)
-                    tts.save(str(out_mp3))
-                    return
-                except Exception:
-                    raise e
-            await asyncio.sleep(1.2)
+            last_err = e
+        await asyncio.sleep(1.0 + attempt * 0.4)
+    if last_err is not None:
+        raise last_err
 
 
 def get_audio_duration(audio_path: Path) -> float:
@@ -182,7 +241,6 @@ def draw_header_and_footer(
     t: float,
     total_dur: float,
 ) -> None:
-    # Üst Header Animasyonu (Slide Down: 0.0s -> 0.45s)
     header_prog = ease_out_cubic(t / 0.45)
     header_y_offset = int((1.0 - header_prog) * -210)
 
@@ -232,7 +290,6 @@ def draw_header_and_footer(
     else:
         draw.text((60, header_y_offset + 148), payload.get("subtitle", ""), font=FONTS["subbar"], fill=WHITE)
 
-    # Alt +18 Bilgilendirme Bandı & İlerleme Çubuğu
     fy = HEIGHT - 120
     draw.rounded_rectangle(
         [55, fy, WIDTH - 55, fy + 72],
@@ -264,34 +321,24 @@ def render_outro_scene(
     step1_dur: float,
     step2_dur: float,
 ) -> None:
-    """
-    Sabah (odds) ve Öğlen (coupon) Reels'lerinin sonunda çalışan 2 aşamalı Motion Graphics rehberi:
-    - Aşama 1 (0 -> step1_dur): Görsel 1 (Hesabım) gösterilir ve "Kayıtlı Bayim" satırı
-      kırmızı daire (circle/elips) içine alınarak anime edilir.
-    - Aşama 2 (step1_dur -> step1_dur + step2_dur): Görsel 2 (Kayıtlı Bayim) gösterilir ve
-      sırasıyla "Bayi No (304168)", "Bayi Adı", "Bayi Adresi" altı kırmızı çizgiyle çizilerek anime edilir.
-    """
     scale = 1.38
-    target_w = int(503 * scale)   # ~694 px
-    target_h = int(1024 * scale)  # ~1413 px
+    target_w = int(503 * scale)
+    target_h = int(1024 * scale)
     base_x = (WIDTH - target_w) // 2
     base_y = 320
 
     if outro_elapsed < step1_dur:
-        # --- AŞAMA 1: GÖRSEL 1 (HESABIM -> KAYITLI BAYİM KIRMIZI DAİRE ANİMASYONU) ---
         enter_prog = ease_out_back(outro_elapsed / 0.42)
         slide_y = int((1.0 - min(1.0, enter_prog)) * 550)
         img_x = base_x
         img_y = base_y + slide_y
 
-        # Üst Başlık Bandı
         badge_text = "ADIM 1: PROFİL > 'KAYITLI BAYİM' KISMINA TIKLA"
         draw.rounded_rectangle([55, 224, WIDTH - 55, 294], radius=16, fill=IDDAA_CARD_BG, outline=IDDAA_YELLOW, width=3)
         bbox = draw.textbbox((0, 0), badge_text, font=FONTS["outro_step"])
         tw = bbox[2] - bbox[0]
         draw.text(((WIDTH - tw) // 2, 241), badge_text, font=FONTS["outro_step"], fill=IDDAA_YELLOW)
 
-        # Telefon Ekran Çerçevesi ve Görsel 1
         draw.rounded_rectangle(
             [img_x - 12, img_y - 12, img_x + target_w + 12, img_y + target_h + 12],
             radius=26,
@@ -301,7 +348,6 @@ def render_outro_scene(
         )
         frame.paste(step1_img, (img_x, img_y))
 
-        # "Kayıtlı Bayim" satırı koordinatları (orijinal görselde y: 525..575, x: 12..490)
         circle_start = 0.45
         circle_prog = ease_out_cubic((outro_elapsed - circle_start) / 0.75)
         if circle_prog > 0.02:
@@ -310,12 +356,10 @@ def render_outro_scene(
             cx2 = img_x + int(492 * scale)
             cy2 = img_y + int(582 * scale)
 
-            # Nabız (Pulse) genişlemesi
             pulse = int(math.sin(outro_elapsed * 8.0) * 5) if circle_prog >= 0.95 else 0
             box = [cx1 - pulse, cy1 - pulse, cx2 + pulse, cy2 + pulse]
 
             end_angle = -90 + int(360 * circle_prog)
-            # Dış kırmızı parlama ve ana kırmızı circle (elips) çizimi
             draw.arc(
                 [box[0] - 3, box[1] - 3, box[2] + 3, box[3] + 3],
                 start=-90,
@@ -330,7 +374,6 @@ def render_outro_scene(
                 fill=ALERT_RED,
                 width=9,
             )
-            # İkinci tur el çizimi efekti (daha vurucu kırmızı circle görünümü için)
             if circle_prog > 0.5:
                 sub_angle = -90 + int(360 * ((circle_prog - 0.5) / 0.5))
                 draw.arc(
@@ -342,7 +385,6 @@ def render_outro_scene(
                 )
 
     else:
-        # --- AŞAMA 2: GÖRSEL 2 (BAYİ NO, BAYİ ADI, BAYİ ADRESİ KIRMIZI ALT ÇİZGİ ANİMASYONU) ---
         s2_t = outro_elapsed - step1_dur
         enter_prog = ease_out_back(s2_t / 0.40)
         slide_x = int((1.0 - min(1.0, enter_prog)) * 600)
@@ -364,12 +406,7 @@ def render_outro_scene(
         )
         frame.paste(step2_img, (img_x, img_y))
 
-        # Sırasıyla altı kırmızı çizilecek 3 alan:
-        # 1) Bayi No & 304168
-        # 2) Bayi Adı & SEZEK ŞANS OYUNLARI İÇ VE DIŞ TİC. LTD.ŞTİ
-        # 3) Bayi Adresi & BARIŞ MAHALLESİ PEYAMİ SAFA SOKAK ÇARŞI B NO:1/9 İÇ KAPI NO:41
         underlines: List[Tuple[float, List[Tuple[int, int, int]]]] = [
-            # (başlangıç_sn, [(x_start, x_end, y_pos), ...])
             (0.30, [(30, 105, 112), (30, 130, 139)]),
             (0.95, [(30, 108, 177), (30, 382, 207)]),
             (1.60, [(30, 135, 244), (30, 452, 269), (30, 222, 292)]),
@@ -387,10 +424,8 @@ def render_outro_scene(
                 lx2 = lx1 + int((ox2 - ox1) * scale * seg_prog)
                 ly = img_y + int(oy * scale)
 
-                # Kırmızı parlama + Kalın kırmızı alt çizgi
                 draw.line([(lx1, ly), (lx2, ly)], fill=ALERT_RED_GLOW, width=11)
                 draw.line([(lx1, ly), (lx2, ly)], fill=ALERT_RED, width=7)
-                # Çizgi ucunda hareketli kırmızı nokta
                 if seg_prog < 0.98:
                     draw.ellipse([lx2 - 7, ly - 7, lx2 + 7, ly + 7], fill=ALERT_RED)
 
@@ -412,7 +447,6 @@ def render_frame(
     frame = base_bg.copy()
     draw = ImageDraw.Draw(frame)
 
-    # 1) Hareketli Stadyum Spot Işığı (Motion Background)
     sweep_x = int(WIDTH * 0.5 + math.sin(t * 1.8) * 220)
     sweep_y = int(520 + math.cos(t * 1.3) * 140)
     draw.ellipse(
@@ -420,7 +454,6 @@ def render_frame(
         fill=(9, 82, 42),
     )
 
-    # Sabah (odds) ve Öğlen (coupon) modlarında main_dur sonrasında Outro Rehber Sahnesi devreye girer
     if mode in ("odds", "coupon") and t >= main_dur and step1_img is not None and step2_img is not None:
         render_outro_scene(
             frame=frame,
@@ -434,7 +467,6 @@ def render_frame(
         draw_header_and_footer(frame, draw, logo_img, payload, mode, cta_text, t, total_dur)
         return frame
 
-    # Sütun Başlıkları (0.4s -> 0.7s)
     if t > 0.35:
         if mode == "odds":
             draw.text((60, 215), payload["col_odds_left"], font=FONTS["head"], fill=IDDAA_MINT)
@@ -446,7 +478,6 @@ def render_frame(
             draw.text((60, 215), payload["col_res_left"], font=FONTS["head"], fill=IDDAA_MINT)
             draw.text((815, 215), payload["col_res_right"], font=FONTS["head"], fill=IDDAA_YELLOW)
 
-    # Staggered (Sıralı) Kart Animasyonları
     if mode in ("odds", "results"):
         matches: List[Dict[str, Any]] = payload.get("matches", [])[:12]
         start_y = 255
@@ -586,7 +617,7 @@ def main() -> None:
         "spor": payload.get("cta_spor", ""),
     }.get(args.category, payload.get("cta_spor", ""))
 
-    # 1) Türkçe Spiker Seslendirmesini (TTS) Üret
+    # 1) Türkçe Erkek Spiker Seslendirmesini (tr-TR-AhmetNeural) Üret
     main_vo_text = build_main_voiceover_text(payload, args.mode)
     main_mp3 = OUTPUT_DIR / f"vo_main_{args.mode}.mp3"
     tts_mp3 = OUTPUT_DIR / f"vo_{args.mode}.mp3"
@@ -594,10 +625,18 @@ def main() -> None:
     if args.mode in ("odds", "coupon"):
         outro1_mp3 = OUTPUT_DIR / f"vo_outro1_{args.mode}.mp3"
         outro2_mp3 = OUTPUT_DIR / f"vo_outro2_{args.mode}.mp3"
-        print(f"[1/3] Türkçe spiker seslendirmesi üretiliyor ({args.mode} + Kayıtlı Bayim rehberi)...")
+        print(f"[1/3] Erkek spiker seslendirmesi üretiliyor: \"{main_vo_text}\"")
         asyncio.run(generate_tts(main_vo_text, main_mp3))
-        asyncio.run(generate_tts(OUTRO_VOICEOVER_STEP1, outro1_mp3))
-        asyncio.run(generate_tts(OUTRO_VOICEOVER_STEP2, outro2_mp3))
+
+        if STATIC_OUTRO1_MP3.exists() and STATIC_OUTRO1_MP3.stat().st_size > 1000:
+            shutil.copyfile(STATIC_OUTRO1_MP3, outro1_mp3)
+        else:
+            asyncio.run(generate_tts(OUTRO_VOICEOVER_STEP1, outro1_mp3))
+
+        if STATIC_OUTRO2_MP3.exists() and STATIC_OUTRO2_MP3.stat().st_size > 1000:
+            shutil.copyfile(STATIC_OUTRO2_MP3, outro2_mp3)
+        else:
+            asyncio.run(generate_tts(OUTRO_VOICEOVER_STEP2, outro2_mp3))
 
         d_main_vo = get_audio_duration(main_mp3)
         d_outro1_vo = get_audio_duration(outro1_mp3)
@@ -608,7 +647,6 @@ def main() -> None:
         step2_dur = max(3.4, d_outro2_vo + 1.85)
         total_dur = main_dur + step1_dur + step2_dur
 
-        # 3 ses parçasını tam zamanlamayla birleştir
         delay_s1_ms = int(main_dur * 1000)
         delay_s2_ms = int((main_dur + step1_dur) * 1000)
         concat_cmd = [
@@ -627,7 +665,7 @@ def main() -> None:
         ]
         subprocess.run(concat_cmd, check=True)
     else:
-        print(f"[1/3] Türkçe spiker seslendirmesi üretiliyor: \"{main_vo_text}\"")
+        print(f"[1/3] Erkek spiker seslendirmesi üretiliyor: \"{main_vo_text}\"")
         asyncio.run(generate_tts(main_vo_text, tts_mp3))
         vo_dur = get_audio_duration(tts_mp3)
         main_dur = max(8.0, min(15.0, vo_dur + 1.4))
@@ -637,7 +675,7 @@ def main() -> None:
 
     total_frames = int(total_dur * FPS)
 
-    # 2) Ses Miksajı (Spiker Sesi + Arka Plan Müziği)
+    # 2) Ses Miksajı (Erkek Spiker Sesi + Arka Plan Müziği)
     mixed_audio = OUTPUT_DIR / f"mixed_{args.mode}.m4a"
     custom_music = ASSETS_DIR / "bg_music.mp3"
     if custom_music.exists():
@@ -686,7 +724,6 @@ def main() -> None:
         else None
     )
 
-    # Bülten tablosunun tam halini kapak görseli olarak kaydet
     cover_frame = render_frame(
         base_bg, logo_img, step1_img, step2_img, payload, args.mode, cta_text,
         max(0.5, main_dur - 0.2), main_dur, step1_dur, step2_dur, total_dur
