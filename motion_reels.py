@@ -159,10 +159,10 @@ def build_main_voiceover_text(payload: Dict[str, Any], mode: str) -> str:
     elif mode == "coupon":
         if payload.get("voiceover_coupon"):
             return expand_betting_terms_for_speech(str(payload["voiceover_coupon"]))
-        items = payload.get("coupon", [])[:6]
+        items = payload.get("coupon", [])[:8]
         picks = [
             f"{c['home']} {c['away']} maçı {expand_betting_terms_for_speech(str(c['pick']))}"
-            for c in items[:3]
+            for c in items
         ]
         picks_str = ", ".join(picks)
         tot = expand_betting_terms_for_speech(str(payload.get("total_odd", "")))
