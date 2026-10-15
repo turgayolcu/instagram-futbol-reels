@@ -1,8 +1,12 @@
 """
 Oturum Kayıtlı (ig_session.json) Instagram Reels Yükleyici (instagrapi)
-Her postun açıklamasına zorunlu bayi kodlarını otomatik ekler.
+Her postun açıklamasına:
+1) Oranların iddaa.com'dan çekildiği saati ve kaynak bilgisini,
+2) Zorunlu İddaa / TJK / Milli Piyango bayi kodlarını otomatik ekler.
 """
 
+import datetime
+import json
 import os
 import sys
 from pathlib import Path
@@ -25,11 +29,31 @@ def load_env(env_path: Path) -> None:
         os.environ[k.strip()] = v.strip()
 
 
-def format_caption(raw_caption: str) -> str:
+def get_fetched_timestamp(base_dir: Path) -> str:
+    data_file = base_dir / "default_data.json"
+    if data_file.exists():
+        try:
+            payload = json.loads(data_file.read_text(encoding="utf-8"))
+            if payload.get("odds_fetched_at"):
+                return str(payload["odds_fetched_at"])
+        except Exception:
+            pass
+    tz_tr = datetime.timezone(datetime.timedelta(hours=3))
+    return datetime.datetime.now(tz_tr).strftime("%d.%m.%Y - %H:%M")
+
+
+def format_caption(raw_caption: str, base_dir: Path) -> str:
     caption = raw_caption.strip()
+    fetched_at = get_fetched_timestamp(base_dir)
+    source_line = (
+        f"📌 Kaynak: iddaa.com (Oranların eklendiği saat: {fetched_at} TSİ | "
+        f"Oranlar değişiklik gösterebilir. +18 Sadece bilgilendirme amaçlıdır.)"
+    )
+
+    parts = [p for p in [caption, source_line] if p]
     if "304168" not in caption:
-        caption = f"{caption}\n\n{MANDATORY_DEALER_BLOCK}" if caption else MANDATORY_DEALER_BLOCK
-    return caption
+        parts.append(MANDATORY_DEALER_BLOCK)
+    return "\n\n".join(parts)
 
 
 def upload_reel(video_path: Path, caption: str) -> bool:
@@ -47,7 +71,7 @@ def upload_reel(video_path: Path, caption: str) -> bool:
         )
         return False
 
-    final_caption = format_caption(caption)
+    final_caption = format_caption(caption, base_dir)
 
     from instagrapi import Client
 

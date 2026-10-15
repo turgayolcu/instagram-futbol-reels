@@ -1,11 +1,10 @@
 """
-Bulut (GitHub Actions) Otomatik Maç, Oran, Banko Kupon ve Maç Sonucu Çekici
-Bilgisayar kapalıyken bulut sunucusunda çalışarak sadece O GÜNÜN (YYYYMMDD)
-gerçek maçlarını çeker; Türk takımlarını ve şampiyon kulüpleri en başa dizer.
+Resmi iddaa.com Canlı Bülten & Oran Çekici (sportsbookv2.iddaa.com)
+Maçları, saatleri, ligleri ve MS 1 / X / 2, 2.5 ÜST, KG VAR oranlarını doğrudan
+resmi https://sportsbookv2.iddaa.com/sportsbook/events?st=1&type=0&version=0 API'sinden çeker.
 """
 
 import datetime
-import hashlib
 import json
 import urllib.request
 from pathlib import Path
@@ -14,49 +13,23 @@ from typing import Any, Dict, List
 BASE_DIR = Path(__file__).resolve().parent
 DEFAULT_JSON = BASE_DIR / "default_data.json"
 
-# Öncelik sırasına göre ligler
-LEAGUES = [
-    ("tur.1", "Süper Lig", 100),
-    ("uefa.champions", "Şampiyonlar Ligi", 95),
-    ("uefa.europa", "Avrupa Ligi", 90),
-    ("uefa.europa.conf", "Konferans Ligi", 88),
-    ("eng.1", "Premier Lig", 80),
-    ("esp.1", "La Liga", 80),
-    ("ita.1", "Serie A", 78),
-    ("ger.1", "Bundesliga", 78),
-    ("fra.1", "Ligue 1", 75),
-]
+EVENTS_URL = "https://sportsbookv2.iddaa.com/sportsbook/events?st=1&type=0&version=0"
+COMPETITIONS_URL = "https://sportsbookv2.iddaa.com/sportsbook/competitions"
 
-TURKISH_TEAMS = {
-    "Galatasaray", "Fenerbahçe", "Fenerbahce", "Beşiktaş", "Besiktas",
-    "Trabzonspor", "Başakşehir", "Basaksehir", "Samsunspor", "Göztepe",
-    "Eyüpspor", "Kasımpaşa", "Sivasspor", "Antalyaspor", "Alanyaspor",
-    "Konyaspor", "Rizespor", "Gaziantep", "Kayserispor", "Hatayspor",
+TURKISH_SUPER_LIG_TEAMS = {
+    "Galatasaray", "Fenerbahçe", "Beşiktaş", "Trabzonspor", "Başakşehir",
+    "Samsunspor", "Göztepe", "Eyüpspor", "Konyaspor", "Antalyaspor",
+    "Alanyaspor", "Çaykur Rizespor", "Rizespor", "Kasımpaşa", "Gaziantep FK",
+    "Kayserispor", "Sivasspor", "Gençlerbirliği",
 }
 
-CHAMPION_GIANTS = {
+EURO_CHAMPIONS = {
     "Real Madrid", "Barcelona", "Atletico Madrid",
     "Manchester City", "Liverpool", "Arsenal", "Manchester United", "Chelsea",
-    "Inter", "Milan", "AC Milan", "Juventus", "Napoli", "Roma",
-    "Bayern Munich", "Bayern Münih", "Borussia Dortmund", "Bayer Leverkusen",
-    "Paris Saint-Germain", "PSG", "Marseille", "Lyon", "Monaco",
-    "Benfica", "Porto", "Sporting CP", "Ajax", "Celtic",
-}
-
-TEAM_TR_MAP = {
-    "Besiktas": "Beşiktaş",
-    "Fenerbahce": "Fenerbahçe",
-    "Istanbul Basaksehir": "Başakşehir",
-    "Bayern Munich": "Bayern Münih",
-    "Paris Saint-Germain": "PSG",
-    "Internazionale": "Inter",
-    "AC Milan": "Milan",
-    "Bayer 04 Leverkusen": "B. Leverkusen",
-    "Borussia Dortmund": "B. Dortmund",
-    "Eintracht Frankfurt": "E. Frankfurt",
-    "Olympique de Marseille": "Marsilya",
-    "Olympique Lyonnais": "Lyon",
-    "Atletico Madrid": "Atl. Madrid",
+    "AC Milan", "Milan", "Juventus", "Napoli", "Roma", "Lazio",
+    "Bayern Münih", "Borussia Dortmund", "B. Dortmund", "B. Leverkusen", "Bayer Leverkusen",
+    "PSG", "Paris Saint-Germain", "Marsilya", "Lyon", "Monaco",
+    "Benfica", "Porto", "Sporting CP", "Ajax", "PSV", "Feyenoord", "Celtic",
 }
 
 MONTHS_TR = [
@@ -68,126 +41,166 @@ DAYS_TR = [
 ]
 
 
-def tr_name(name: str) -> str:
-    for k, v in TEAM_TR_MAP.items():
-        if k.lower() == name.lower():
-            return v
-    return name
+def fetch_json(url: str) -> Any:
+    req = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept": "application/json",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        return json.loads(resp.read().decode("utf-8"))
 
 
-def deterministic_odds(home: str, away: str) -> tuple[str, str, str]:
-    """API'de oran yoksa takımların gücüne göre tutarlı iddaa.com formatında MS 1/X/2 oranları üretir."""
-    h_giant = any(g.lower() in home.lower() for g in (TURKISH_TEAMS | CHAMPION_GIANTS))
-    a_giant = any(g.lower() in away.lower() for g in (TURKISH_TEAMS | CHAMPION_GIANTS))
-    seed = int(hashlib.md5(f"{home}-{away}".encode("utf-8")).hexdigest()[:6], 16)
-
-    if h_giant and not a_giant:
-        ms1 = 1.28 + (seed % 28) * 0.01
-        msx = 3.70 + (seed % 90) * 0.01
-        ms2 = 4.50 + (seed % 240) * 0.01
-    elif a_giant and not h_giant:
-        ms2 = 1.38 + (seed % 32) * 0.01
-        msx = 3.55 + (seed % 80) * 0.01
-        ms1 = 3.90 + (seed % 210) * 0.01
-    else:
-        ms1 = 1.85 + (seed % 55) * 0.01
-        msx = 3.15 + (seed % 45) * 0.01
-        ms2 = 2.45 + (seed % 65) * 0.01
-
-    return f"{ms1:.2f}", f"{msx:.2f}", f"{ms2:.2f}"
-
-
-def fetch_todays_matches(date_yyyymmdd: str) -> List[Dict[str, Any]]:
-    all_matches: List[Dict[str, Any]] = []
-
-    for slug, league_tr, base_prio in LEAGUES:
-        url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{slug}/scoreboard?dates={date_yyyymmdd}"
-        try:
-            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-        except Exception:
-            continue
-
-        for ev in data.get("events", []):
-            comps = ev.get("competitions", [])
-            if not comps:
-                continue
-            comp = comps[0]
-            competitors = comp.get("competitors", [])
-            if len(competitors) < 2:
-                continue
-
-            home_c = next((c for c in competitors if c.get("homeAway") == "home"), competitors[0])
-            away_c = next((c for c in competitors if c.get("homeAway") == "away"), competitors[1])
-
-            home_name = tr_name(home_c.get("team", {}).get("shortDisplayName") or home_c.get("team", {}).get("displayName", ""))
-            away_name = tr_name(away_c.get("team", {}).get("shortDisplayName") or away_c.get("team", {}).get("displayName", ""))
-
-            # Saat (UTC -> TSİ UTC+3)
-            raw_date = ev.get("date", "")
-            try:
-                dt_utc = datetime.datetime.fromisoformat(raw_date.replace("Z", "+00:00"))
-                dt_tsi = dt_utc + datetime.timedelta(hours=3)
-                time_str = dt_tsi.strftime("%H:%M")
-            except Exception:
-                time_str = "20:00"
-
-            h_score = home_c.get("score", "0")
-            a_score = away_c.get("score", "0")
-            completed = comp.get("status", {}).get("type", {}).get("completed", False)
-
-            # Öncelik hesabı: Türk takımları en başta (+200), Şampiyon devler (+50)
-            prio = base_prio
-            if any(t.lower() in home_name.lower() or t.lower() in away_name.lower() for t in TURKISH_TEAMS):
-                prio += 200
-            if any(g.lower() in home_name.lower() or g.lower() in away_name.lower() for g in CHAMPION_GIANTS):
-                prio += 50
-
-            ms1, msx, ms2 = deterministic_odds(home_name, away_name)
-            all_matches.append(
-                {
-                    "prio": prio,
-                    "completed": completed,
-                    "time": time_str,
-                    "league": league_tr,
-                    "home": home_name,
-                    "away": away_name,
-                    "ms1": ms1,
-                    "msx": msx,
-                    "ms2": ms2,
-                    "score": f"{h_score} - {a_score}",
-                }
-            )
-
-    all_matches.sort(key=lambda x: (-x["prio"], x["time"]))
-    return all_matches
+def clean_league_name(full_name: str, short_name: str) -> str:
+    if "Şampiyonlar Ligi" in full_name:
+        return "Şampiyonlar Ligi"
+    if "Avrupa Ligi" in full_name:
+        return "Avrupa Ligi"
+    if "Konferans Ligi" in full_name:
+        return "Konferans Ligi"
+    if "Türkiye Süper Lig" in full_name:
+        return "Süper Lig"
+    if "İngiltere Premier Lig" in full_name:
+        return "Premier Lig"
+    if "İspanya La Liga" in full_name or "LaLiga" in full_name:
+        return "La Liga"
+    if "İtalya Serie A" in full_name:
+        return "Serie A"
+    if "Almanya Bundesliga" in full_name:
+        return "Bundesliga"
+    if "Fransa Ligue 1" in full_name:
+        return "Ligue 1"
+    return short_name.strip() or full_name[:18]
 
 
-def update_daily_json() -> None:
+def is_euro_giant(team_name: str) -> bool:
+    t_low = team_name.lower().strip()
+    if t_low == "inter":
+        return True
+    for g in EURO_CHAMPIONS:
+        if g.lower() == t_low or (len(g) > 5 and g.lower() in t_low):
+            return True
+    return False
+
+
+def get_competitions_map() -> Dict[int, Dict[str, Any]]:
+    data = fetch_json(COMPETITIONS_URL)
+    comp_map: Dict[int, Dict[str, Any]] = {}
+    for c in data.get("data", []):
+        cid = c.get("i")
+        if cid is not None:
+            comp_map[int(cid)] = c
+    return comp_map
+
+
+def extract_iddaa_odds(markets: List[Dict[str, Any]]) -> Dict[str, str]:
+    res = {"ms1": "-", "msx": "-", "ms2": "-", "over25": "", "btts": ""}
+    for m in markets:
+        st = m.get("st")
+        sov = str(m.get("sov", ""))
+        outcomes = m.get("o", [])
+        if st == 1 and len(outcomes) >= 3:
+            for o in outcomes:
+                name = str(o.get("n", ""))
+                odd_val = f"{float(o.get('odd', 0)):.2f}"
+                if name == "1":
+                    res["ms1"] = odd_val
+                elif name in ("0", "X"):
+                    res["msx"] = odd_val
+                elif name == "2":
+                    res["ms2"] = odd_val
+        elif st == 101 and sov == "2.5":
+            for o in outcomes:
+                if "Üst" in str(o.get("n", "")) or o.get("no") == 2:
+                    res["over25"] = f"{float(o.get('odd', 0)):.2f}"
+        elif st == 89:
+            for o in outcomes:
+                if str(o.get("n", "")) == "Var" or o.get("no") == 1:
+                    res["btts"] = f"{float(o.get('odd', 0)):.2f}"
+    return res
+
+
+def update_from_official_iddaa() -> None:
     tz_tr = datetime.timezone(datetime.timedelta(hours=3))
     now_tr = datetime.datetime.now(tz_tr)
-    date_str = now_tr.strftime("%Y%m%d")
-    subtitle_date = f"{now_tr.day} {MONTHS_TR[now_tr.month]} {DAYS_TR[now_tr.weekday()]}"
+    today_date = now_tr.date()
 
-    fetched = fetch_todays_matches(date_str)
-    if not fetched:
-        print(f"[BİLGİ] {date_str} için canlı API'den maç dönmedi, mevcut default_data.json korunuyor.")
+    comp_map = get_competitions_map()
+    ev_data = fetch_json(EVENTS_URL)
+    events = ev_data.get("data", {}).get("events", [])
+
+    todays_events: List[Dict[str, Any]] = []
+
+    for ev in events:
+        ts = ev.get("d", 0)
+        dt_tr = datetime.datetime.fromtimestamp(ts, tz=tz_tr)
+        if dt_tr.date() != today_date:
+            continue
+
+        odds = extract_iddaa_odds(ev.get("m", []))
+        if odds["ms1"] == "-":
+            continue
+
+        ci = int(ev.get("ci", 0))
+        comp = comp_map.get(ci, {})
+        league_full = str(comp.get("n", "Futbol"))
+        league_clean = clean_league_name(league_full, str(comp.get("sn", "")))
+        comp_prio = int(comp.get("p", 9999))
+
+        hn = str(ev.get("hn", "")).strip()
+        an = str(ev.get("an", "")).strip()
+
+        score_prio = 0
+        if any(t.lower() in hn.lower() or t.lower() in an.lower() for t in TURKISH_SUPER_LIG_TEAMS):
+            score_prio += 6000
+        if "Türkiye Süper Lig" in league_full:
+            score_prio += 4000
+        if any(k in league_full for k in ("Şampiyonlar Ligi", "Avrupa Ligi", "Konferans Ligi")):
+            score_prio += 3000
+        if is_euro_giant(hn) or is_euro_giant(an):
+            score_prio += 1500
+        score_prio += max(0, 500 - comp_prio)
+
+        todays_events.append(
+            {
+                "prio": score_prio,
+                "time": dt_tr.strftime("%H:%M"),
+                "league": league_clean,
+                "home": hn,
+                "away": an,
+                "ms1": odds["ms1"],
+                "msx": odds["msx"],
+                "ms2": odds["ms2"],
+                "over25": odds["over25"],
+                "btts": odds["btts"],
+                "score": "0 - 0",
+            }
+        )
+
+    todays_events.sort(key=lambda x: (-x["prio"], x["time"]))
+    selected = todays_events[:12]
+
+    if not selected:
+        print("[BİLGİ] Bugün için bültende maç bulunamadı.")
         return
 
-    top12 = fetched[:12]
-
-    # Günün Banko Kuponu (En yüksek öncelikli 4 maç)
     coupon_items = []
     total_odd = 1.0
-    for m in top12[:4]:
-        f1, fx, f2 = float(m["ms1"]), float(m["msx"]), float(m["ms2"])
+    for m in selected[:4]:
+        f1 = float(m["ms1"])
+        f2 = float(m["ms2"])
         if f1 <= 1.65:
             pick, odd = "MS 1", f1
         elif f2 <= 1.75:
             pick, odd = "MS 2", f2
+        elif m["btts"]:
+            pick, odd = "KG VAR", float(m["btts"])
+        elif m["over25"]:
+            pick, odd = "2.5 ÜST", float(m["over25"])
         else:
-            pick, odd = "KG VAR", round(min(f1, f2) * 0.82, 2)
+            pick, odd = ("MS 1", f1) if f1 <= f2 else ("MS 2", f2)
         total_odd *= odd
         coupon_items.append(
             {
@@ -200,18 +213,32 @@ def update_daily_json() -> None:
             }
         )
 
+    subtitle_date = f"{now_tr.day} {MONTHS_TR[now_tr.month]} {DAYS_TR[now_tr.weekday()]}"
+    fetched_time_str = now_tr.strftime("%d.%m.%Y - %H:%M")
     payload = json.loads(DEFAULT_JSON.read_text(encoding="utf-8"))
-    payload["subtitle"] = f"{subtitle_date}  •  TÜRKİYE & AVRUPA"
+    payload["subtitle"] = f"{subtitle_date}  •  RESMİ İDDAA.COM BÜLTENİ"
+    payload["odds_fetched_at"] = fetched_time_str
     payload["matches"] = [
-        {k: v for k, v in m.items() if k not in ("prio", "completed")}
-        for m in top12
+        {
+            "time": m["time"],
+            "league": m["league"],
+            "home": m["home"],
+            "away": m["away"],
+            "ms1": m["ms1"],
+            "msx": m["msx"],
+            "ms2": m["ms2"],
+            "score": m["score"],
+        }
+        for m in selected
     ]
     payload["coupon"] = coupon_items
     payload["total_odd"] = f"{total_odd:.2f}"
 
     DEFAULT_JSON.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"[OK] {subtitle_date} bülteni ({len(top12)} maç) ve kuponu güncellendi.")
+    print(f"[OK] Resmi iddaa.com API'sinden {subtitle_date} tarihli {len(selected)} maç ve gerçek oranlar çekildi!")
+    for idx, m in enumerate(selected, 1):
+        print(f"  {idx:2d}. [{m['time']} | {m['league']}] {m['home']} - {m['away']} -> MS1:{m['ms1']} X:{m['msx']} MS2:{m['ms2']}")
 
 
 if __name__ == "__main__":
-    update_daily_json()
+    update_from_official_iddaa()

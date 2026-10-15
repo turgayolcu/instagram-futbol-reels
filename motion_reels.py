@@ -124,8 +124,15 @@ def build_voiceover_text(payload: Dict[str, Any], mode: str, category: str) -> s
 
 
 async def generate_tts(text: str, out_mp3: Path, voice: str = "tr-TR-AhmetNeural") -> None:
-    communicate = edge_tts.Communicate(text, voice=voice, rate="+8%", pitch="-2Hz")
-    await communicate.save(str(out_mp3))
+    for attempt in range(3):
+        try:
+            communicate = edge_tts.Communicate(text, voice=voice, rate="+6%")
+            await communicate.save(str(out_mp3))
+            return
+        except Exception as e:
+            if attempt == 2:
+                raise e
+            await asyncio.sleep(1.0)
 
 
 def get_audio_duration(audio_path: Path) -> float:
