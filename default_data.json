@@ -1,0 +1,38 @@
+{
+  "title": "GÜNÜN MAÇLARI & ORANLAR",
+  "coupon_title": "GÜNÜN BANKO KUPONU",
+  "results_title": "GÜNÜN MAÇ SONUÇLARI",
+  "subtitle": "15 EKİM PERŞEMBE  •  AVRUPA & KONFERANS LİGİ",
+  "cta_spor": "Hemen oynamak için iddaa.com'a gir bayi kodunu 304168 yap",
+  "cta_tjk": "Hemen oynamak için bayi kodunu 1607 yap (TJK)",
+  "cta_mp": "Hemen oynamak için Milli Piyango bayi kodunu 117718 yap",
+  "col_odds_left": "SAAT / LİG / KARŞILAŞMA",
+  "col_odds_right": "MS 1        X        MS 2",
+  "col_coupon_left": "SAAT / KARŞILAŞMA",
+  "col_coupon_right": "TAHMİN        ORAN",
+  "col_res_left": "LİG / KARŞILAŞMA",
+  "col_res_right": "MAÇ SONUCU",
+  "total_odd_label": "TOPLAM KUPON ORANI",
+  "disclaimer": "Sadece bilgilendirme amaçlıdır.",
+  "matches": [
+    { "time": "22:00", "league": "Avrupa Ligi", "home": "Hoffenheim", "away": "Beşiktaş", "ms1": "1.72", "msx": "3.65", "ms2": "3.45", "score": "1 - 2" },
+    { "time": "19:45", "league": "Konferans Ligi", "home": "KuPS Kuopio", "away": "Trabzonspor", "ms1": "4.10", "msx": "3.50", "ms2": "1.58", "score": "0 - 2" },
+    { "time": "22:00", "league": "Avrupa Ligi", "home": "Celta Vigo", "away": "Juventus", "ms1": "2.85", "msx": "3.15", "ms2": "2.10", "score": "1 - 2" },
+    { "time": "19:45", "league": "Avrupa Ligi", "home": "Salzburg", "away": "Milan", "ms1": "3.40", "msx": "3.45", "ms2": "1.78", "score": "1 - 3" },
+    { "time": "19:45", "league": "Avrupa Ligi", "home": "Lech Poznan", "away": "B. Leverkusen", "ms1": "4.60", "msx": "3.80", "ms2": "1.48", "score": "0 - 2" },
+    { "time": "22:00", "league": "Avrupa Ligi", "home": "Benfica", "away": "Celtic", "ms1": "1.52", "msx": "3.75", "ms2": "4.30", "score": "2 - 1" },
+    { "time": "22:00", "league": "Avrupa Ligi", "home": "Marsilya", "away": "Olympiakos", "ms1": "1.55", "msx": "3.60", "ms2": "4.40", "score": "2 - 0" },
+    { "time": "19:45", "league": "Avrupa Ligi", "home": "Lyon", "away": "Crystal Palace", "ms1": "2.05", "msx": "3.25", "ms2": "2.90", "score": "2 - 1" },
+    { "time": "19:45", "league": "Avrupa Ligi", "home": "Union SG", "away": "Real Sociedad", "ms1": "2.75", "msx": "3.10", "ms2": "2.20", "score": "1 - 1" },
+    { "time": "22:00", "league": "Avrupa Ligi", "home": "Dinamo Zagreb", "away": "Anderlecht", "ms1": "2.15", "msx": "3.20", "ms2": "2.75", "score": "2 - 1" },
+    { "time": "22:00", "league": "Avrupa Ligi", "home": "Bournemouth", "away": "Sturm Graz", "ms1": "1.38", "msx": "4.10", "ms2": "5.40", "score": "3 - 0" },
+    { "time": "19:45", "league": "Avrupa Ligi", "home": "AZ Alkmaar", "away": "H. Beer-Sheva", "ms1": "1.45", "msx": "3.85", "ms2": "4.90", "score": "2 - 0" }
+  ],
+  "coupon": [
+    { "time": "22:00", "league": "Avrupa Ligi", "home": "Hoffenheim", "away": "Beşiktaş", "pick": "KG VAR", "odd": "1.52" },
+    { "time": "19:45", "league": "Konferans Ligi", "home": "KuPS Kuopio", "away": "Trabzonspor", "pick": "MS 2", "odd": "1.58" },
+    { "time": "19:45", "league": "Avrupa Ligi", "home": "Salzburg", "away": "Milan", "pick": "MS 2", "odd": "1.78" },
+    { "time": "19:45", "league": "Avrupa Ligi", "home": "Lech Poznan", "away": "B. Leverkusen", "pick": "MS 2", "odd": "1.48" }
+  ],
+  "total_odd": "6.32"
+}

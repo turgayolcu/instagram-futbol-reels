@@ -1,0 +1,98 @@
+"""
+Oturum Kayıtlı (ig_session.json) Instagram Reels Yükleyici (instagrapi)
+Her postun açıklamasına zorunlu bayi kodlarını otomatik ekler.
+"""
+
+import os
+import sys
+from pathlib import Path
+
+MANDATORY_DEALER_BLOCK = (
+    "İddaa Bayi Kod : 304168\n"
+    "Tjk Bayi Kod : 1607\n"
+    "Milli Piyango Bayi Kod : 117718"
+)
+
+
+def load_env(env_path: Path) -> None:
+    if not env_path.exists():
+        return
+    for line in env_path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        os.environ[k.strip()] = v.strip()
+
+
+def format_caption(raw_caption: str) -> str:
+    caption = raw_caption.strip()
+    if "304168" not in caption:
+        caption = f"{caption}\n\n{MANDATORY_DEALER_BLOCK}" if caption else MANDATORY_DEALER_BLOCK
+    return caption
+
+
+def upload_reel(video_path: Path, caption: str) -> bool:
+    base_dir = Path(__file__).resolve().parent
+    load_env(base_dir / ".env")
+
+    username = os.environ.get("IG_USERNAME", "").strip()
+    password = os.environ.get("IG_PASSWORD", "").strip()
+
+    if not username or not password or username == "kullanici_adin":
+        print(
+            f"[BİLGİ] .env dosyasında IG_USERNAME ve IG_PASSWORD henüz girilmemiş.\n"
+            f"Lütfen {base_dir / '.env'} dosyasına Instagram kullanıcı adı ve şifrenizi yazın.\n"
+            f"Hazır olan Reels videosu: {video_path}"
+        )
+        return False
+
+    final_caption = format_caption(caption)
+
+    from instagrapi import Client
+
+    session_file = base_dir / "ig_session.json"
+    cl = Client()
+    cl.delay_range = [2, 5]
+
+    if session_file.exists():
+        try:
+            print("[1/3] Kayıtlı Instagram oturumu (ig_session.json) yükleniyor...")
+            cl.load_settings(str(session_file))
+            cl.login(username, password)
+            cl.get_timeline_feed()
+            print("[OK] Mevcut oturum ile güvenli giriş yapıldı.")
+        except Exception:
+            print("[BİLGİ] Oturum yenileniyor...")
+            cl = Client()
+            cl.login(username, password)
+            cl.dump_settings(str(session_file))
+    else:
+        print(f"[1/3] @{username} hesabına ilk giriş yapılıyor ve oturum kaydediliyor...")
+        cl.login(username, password)
+        cl.dump_settings(str(session_file))
+        print(f"[OK] Oturum kaydedildi: {session_file}")
+
+    print(f"[2/3] Reels videosu Instagram'a yükleniyor: {video_path.name} ...")
+    thumb_path = video_path.with_suffix(".png")
+    media = cl.clip_upload(
+        path=str(video_path),
+        caption=final_caption,
+        thumbnail=str(thumb_path) if thumb_path.exists() else None,
+    )
+    print(f"[3/3] BAŞARILI! Reels paylaşıldı. Media PK: {media.pk}")
+    return True
+
+
+if __name__ == "__main__":
+    if len(sys.argv) < 3:
+        print("Kullanım: python upload_instagram.py <video_mp4_yolu> <aciklama_metni>")
+        sys.exit(1)
+
+    v_path = Path(sys.argv[1]).resolve()
+    cap_text = sys.argv[2]
+    if not v_path.exists():
+        print(f"[HATA] Video dosyası bulunamadı: {v_path}")
+        sys.exit(1)
+
+    upload_reel(v_path, cap_text)
