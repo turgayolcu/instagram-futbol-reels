@@ -45,10 +45,13 @@ def get_fetched_timestamp(base_dir: Path) -> str:
 def format_caption(raw_caption: str, base_dir: Path) -> str:
     caption = raw_caption.strip()
     fetched_at = get_fetched_timestamp(base_dir)
-    source_line = (
-        f"📌 Kaynak: iddaa.com (Oranların eklendiği saat: {fetched_at} TSİ | "
-        f"Oranlar değişiklik gösterebilir. +18 Sadece bilgilendirme amaçlıdır.)"
-    )
+    if "sonuç" in caption.lower() or "results" in caption.lower():
+        source_line = f"📌 Kaynak: iddaa.com (Bilgilendirme Saati: {fetched_at} TSİ | +18 Sadece bilgilendirme amaçlıdır.)"
+    else:
+        source_line = (
+            f"📌 Kaynak: iddaa.com (Oranların eklendiği saat: {fetched_at} TSİ | "
+            f"Oranlar değişiklik gösterebilir. +18 Sadece bilgilendirme amaçlıdır.)"
+        )
 
     parts = [p for p in [caption, source_line] if p]
     if "304168" not in caption:

@@ -2,10 +2,10 @@ name: Instagram Gunluk Futbol Reels Otomasyonu
 
 on:
   schedule:
-    # Sabah 10:00 TSİ (UTC 07:00) - Her gün Günün Maçları
-    - cron: '0 7 * * *'
-    # Öğlen 15:00 TSİ (UTC 12:00) - Her gün Günün Banko Kuponu
-    - cron: '0 12 * * *'
+    # Sabah 10:02 TSİ (UTC 07:02) - Her gün Günün Maçları (:00 GitHub kuyruk yoğunluğunu aşmak için)
+    - cron: '2 7 * * *'
+    # Öğlen 15:02 TSİ (UTC 12:02) - Her gün Günün Banko Kuponu
+    - cron: '2 12 * * *'
     # Hafta İçi 23:59 TSİ (UTC 20:59) - Maç Sonuçları
     - cron: '59 20 * * 1-5'
     # Hafta Sonu 22:30 TSİ (UTC 19:30) - Maç Sonuçları

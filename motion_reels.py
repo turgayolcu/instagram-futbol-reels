@@ -174,12 +174,20 @@ def build_main_voiceover_text(payload: Dict[str, Any], mode: str) -> str:
         )
         return expand_betting_terms_for_speech(raw)
     else:
+        if payload.get("voiceover_results"):
+            return expand_betting_terms_for_speech(str(payload["voiceover_results"]))
         matches = payload.get("matches", [])[:12]
-        res_list = [f"{m['home']} {m['score'].replace('-', ' ')} {m['away']}" for m in matches[:3]]
+        res_list = []
+        for m in matches[:3]:
+            sc_parts = [p.strip() for p in m.get("score", "0 - 0").split("-")]
+            if len(sc_parts) == 2:
+                res_list.append(f"{m['home']} {sc_parts[0]}, {m['away']} {sc_parts[1]}")
+            else:
+                res_list.append(f"{m['home']} {m.get('score', '')} {m['away']}")
         res_str = ", ".join(res_list)
         raw = (
             f"Günün maç sonuçları! "
-            f"Bugün tamamlanan karşılaşmalarda {res_str} skorları kaydedildi. "
+            f"Tamamlanan karşılaşmalarda {res_str} skorları kaydedildi. "
             f"Tüm maç sonuçları ekranınızda."
         )
         return expand_betting_terms_for_speech(raw)
@@ -537,7 +545,10 @@ def render_frame(
                     outline=IDDAA_YELLOW,
                     width=2,
                 )
-                draw.text((sx + 50, y1 + 36), str(m.get("score", "0 - 0")), font=FONTS["match"], fill=IDDAA_YELLOW)
+                score_str = str(m.get("score", "0 - 0"))
+                s_bbox = draw.textbbox((0, 0), score_str, font=FONTS["match"])
+                sw = s_bbox[2] - s_bbox[0]
+                draw.text((sx + (175 - sw) // 2, y1 + 36), score_str, font=FONTS["match"], fill=IDDAA_YELLOW)
 
     else:
         items = payload.get("coupon", [])[:8]

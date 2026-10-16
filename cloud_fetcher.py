@@ -61,28 +61,38 @@ def fetch_json(url: str) -> Any:
 
 
 def clean_league_name(full_name: str, short_name: str) -> str:
-    if "Şampiyonlar Ligi" in full_name:
+    if "UEFA Şampiyonlar Ligi" in full_name:
         return "Şampiyonlar Ligi"
-    if "Avrupa Ligi" in full_name:
+    if "UEFA Avrupa Ligi" in full_name:
         return "Avrupa Ligi"
-    if "Konferans Ligi" in full_name:
+    if "UEFA Konferans Ligi" in full_name:
         return "Konferans Ligi"
     if "Türkiye Süper Lig" in full_name:
         return "Süper Lig"
-    if "İngiltere Premier Lig" in full_name:
+    if "Türkiye 1. Lig" in full_name:
+        return "1. Lig"
+    if "İngiltere Premier Lig" in full_name and "2" not in full_name and "U21" not in full_name:
         return "Premier Lig"
     if "İspanya La Liga" in full_name or "LaLiga" in full_name:
         return "La Liga"
     if "İtalya Serie A" in full_name:
         return "Serie A"
-    if "Almanya Bundesliga" in full_name:
+    if "Almanya Bundesliga" in full_name and "2." not in full_name:
         return "Bundesliga"
     if "Fransa Ligue 1" in full_name:
         return "Ligue 1"
     return short_name.strip() or full_name[:18]
 
 
+def is_youth_or_reserve(name: str) -> bool:
+    low = f" {name.lower().strip()} "
+    youth_tokens = (" u21 ", " u19 ", " u20 ", " u23 ", " u18 ", " ii ", " (k) ", " kadın ", " genç ", " reserve ")
+    return any(tok in low for tok in youth_tokens)
+
+
 def is_euro_giant(team_name: str) -> bool:
+    if is_youth_or_reserve(team_name):
+        return False
     t_low = team_name.lower().strip()
     if t_low == "inter":
         return True
@@ -164,10 +174,14 @@ def update_from_official_iddaa() -> None:
             score_prio += 6000
         if "Türkiye Süper Lig" in league_full:
             score_prio += 4000
-        if any(k in league_full for k in ("Şampiyonlar Ligi", "Avrupa Ligi", "Konferans Ligi")):
+        if "Türkiye 1. Lig" in league_full:
+            score_prio += 2500
+        if any(k in league_full for k in ("UEFA Şampiyonlar Ligi", "UEFA Avrupa Ligi", "UEFA Konferans Ligi")):
             score_prio += 3000
         if is_euro_giant(hn) or is_euro_giant(an):
             score_prio += 1500
+        if is_youth_or_reserve(hn) or is_youth_or_reserve(an) or is_youth_or_reserve(league_full):
+            score_prio -= 2000
         score_prio += max(0, 500 - comp_prio)
 
         todays_events.append(
@@ -193,21 +207,60 @@ def update_from_official_iddaa() -> None:
         print("[BİLGİ] Bugün için bültende maç bulunamadı.")
         return
 
+    coupon_candidates = []
+    for m in selected:
+        f1 = float(m["ms1"]) if m["ms1"] != "-" else 99.0
+        f2 = float(m["ms2"]) if m["ms2"] != "-" else 99.0
+        btts_val = float(m["btts"]) if m.get("btts") else 0.0
+        o25_val = float(m["over25"]) if m.get("over25") else 0.0
+
+        pick = None
+        odd = 1.0
+        confidence = 0
+
+        # 1) Çok güvenilir doğrudan galibiyet (1.25 - 1.65)
+        if 1.25 <= f2 <= 1.65:
+            pick, odd, confidence = "MS 2", f2, 105 - int(f2 * 20)
+        elif 1.25 <= f1 <= 1.65:
+            pick, odd, confidence = "MS 1", f1, 105 - int(f1 * 20)
+        # 2) KG VAR (1.30 - 1.50)
+        elif 1.30 <= btts_val <= 1.50:
+            pick, odd, confidence = "KG VAR", btts_val, 85 - int(btts_val * 10)
+        # 3) 2.5 ÜST (1.25 - 1.50)
+        elif 1.25 <= o25_val <= 1.50:
+            pick, odd, confidence = "2.5 ÜST", o25_val, 80 - int(o25_val * 10)
+        else:
+            if f1 <= 1.75:
+                pick, odd, confidence = "MS 1", f1, 70
+            elif f2 <= 1.75:
+                pick, odd = "MS 2", f2
+                confidence = 70
+            elif btts_val > 0:
+                pick, odd = "KG VAR", btts_val
+                confidence = 60
+
+        if pick and odd > 1.0:
+            # Türk takımı ve Avrupa Şampiyonu takımlara öncelik ver
+            is_turkish = any(t.lower() in m["home"].lower() or t.lower() in m["away"].lower() for t in TURKISH_SUPER_LIG_TEAMS)
+            is_euro_champ = is_euro_giant(m["home"]) or is_euro_giant(m["away"])
+            if is_turkish:
+                confidence += 50
+            if is_euro_champ:
+                confidence += 30
+            coupon_candidates.append({
+                "match": m,
+                "pick": pick,
+                "odd": odd,
+                "confidence": confidence,
+            })
+
+    coupon_candidates.sort(key=lambda x: -x["confidence"])
+
     coupon_items = []
     total_odd = 1.0
-    for m in selected[:4]:
-        f1 = float(m["ms1"])
-        f2 = float(m["ms2"])
-        if f1 <= 1.65:
-            pick, odd = "MS 1", f1
-        elif f2 <= 1.75:
-            pick, odd = "MS 2", f2
-        elif m["btts"]:
-            pick, odd = "KG VAR", float(m["btts"])
-        elif m["over25"]:
-            pick, odd = "2.5 ÜST", float(m["over25"])
-        else:
-            pick, odd = ("MS 1", f1) if f1 <= f2 else ("MS 2", f2)
+    for c in coupon_candidates[:4]:
+        m = c["match"]
+        odd = c["odd"]
         total_odd *= odd
         coupon_items.append(
             {
@@ -215,7 +268,7 @@ def update_from_official_iddaa() -> None:
                 "league": m["league"],
                 "home": m["home"],
                 "away": m["away"],
-                "pick": pick,
+                "pick": c["pick"],
                 "odd": f"{odd:.2f}",
             }
         )
@@ -223,7 +276,14 @@ def update_from_official_iddaa() -> None:
     subtitle_date = f"{now_tr.day} {MONTHS_TR[now_tr.month]} {DAYS_TR[now_tr.weekday()]}"
     fetched_time_str = now_tr.strftime("%d.%m.%Y - %H:%M")
     payload = json.loads(DEFAULT_JSON.read_text(encoding="utf-8"))
+    payload["title"] = "GÜNÜN MAÇLARI & ORANLAR"
+    payload["coupon_title"] = "GÜNÜN BANKO KUPONU"
+    payload["results_title"] = "GÜNÜN MAÇ SONUÇLARI"
     payload["subtitle"] = f"{subtitle_date}  •  RESMİ İDDAA.COM BÜLTENİ"
+    payload["cta_spor"] = "Hemen oynamak için iddaa.com'a gir bayi kodunu 304168 yap"
+    payload["cta_tjk"] = "Hemen oynamak için bayi kodunu 1607 yap (TJK)"
+    payload["cta_mp"] = "Hemen oynamak için Milli Piyango bayi kodunu 117718 yap"
+    payload["disclaimer"] = "+18 | Sadece bilgilendirme amaçlıdır."
     payload["odds_fetched_at"] = fetched_time_str
     payload["matches"] = [
         {

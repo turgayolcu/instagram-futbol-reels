@@ -20,8 +20,10 @@ if (-not (Test-Path $PyExe)) {
 }
 
 if ($DataJsonPath -eq "") {
-    # Her calistiginda once resmi sportsbookv2.iddaa.com API'sinden anlik gercek bulteni ve oranlari cek!
-    & $PyExe $FetcherPy
+    # Results modunda maç sonuçları default_data.json içinde saklandığı için bülten çekici çalıştırılmaz
+    if ($Mode -ne "results") {
+        & $PyExe $FetcherPy
+    }
     & $PyExe $MotionPy --mode $Mode --category $Category
 } else {
     & $PyExe $MotionPy --mode $Mode --category $Category --data $DataJsonPath
