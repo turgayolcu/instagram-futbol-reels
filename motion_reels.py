@@ -464,7 +464,7 @@ def render_frame(
         fill=(9, 82, 42),
     )
 
-    if mode in ("odds", "coupon") and t >= main_dur and step1_img is not None and step2_img is not None:
+    if mode in ("odds", "coupon", "results") and t >= main_dur and step1_img is not None and step2_img is not None:
         render_outro_scene(
             frame=frame,
             draw=draw,
@@ -638,7 +638,7 @@ def main() -> None:
     main_mp3 = OUTPUT_DIR / f"vo_main_{args.mode}.mp3"
     tts_mp3 = OUTPUT_DIR / f"vo_{args.mode}.mp3"
 
-    if args.mode in ("odds", "coupon"):
+    if args.mode in ("odds", "coupon", "results"):
         outro1_mp3 = OUTPUT_DIR / f"vo_outro1_{args.mode}.mp3"
         outro2_mp3 = OUTPUT_DIR / f"vo_outro2_{args.mode}.mp3"
         print(f"[1/3] Erkek spiker seslendirmesi üretiliyor: \"{main_vo_text}\"")

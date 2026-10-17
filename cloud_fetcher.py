@@ -27,6 +27,10 @@ TURKISH_SUPER_LIG_TEAMS = {
     "Kayserispor", "Sivasspor", "Gençlerbirliği", "Çorum FK", "Kocaelispor",
 }
 
+TURKISH_GIANTS = {
+    "Galatasaray", "Fenerbahçe", "Beşiktaş", "Trabzonspor"
+}
+
 EURO_CHAMPIONS = {
     "Real Madrid", "Barcelona", "Atletico Madrid",
     "Manchester City", "Liverpool", "Arsenal", "Manchester United", "Chelsea",
@@ -93,7 +97,7 @@ def is_youth_or_reserve(name: str) -> bool:
     low = f" {name.lower().strip()} "
     youth_tokens = (
         " u21 ", " u19 ", " u20 ", " u23 ", " u18 ", " u17 ", " u16 ", " ii ", " (k) ",
-        " kadın ", " genç ", " reserve ", " bölgesel ", " amatör "
+        " kadın ", " genç ", " reserve ", " bölgesel ", " amatör ", " b ", " (b) "
     )
     return any(tok in low for tok in youth_tokens)
 
@@ -197,7 +201,9 @@ def fetch_mackolik_verified_results(target_date: datetime.date) -> List[Dict[str
 
             # Mackolik dizilim sırası zaten popüler ligleri en üste koyar (idx küçükse daha popüler)
             prio = max(0, 1000 - idx * 2)
-            if "Türkiye" in country or any(t.lower() in home.lower() or t.lower() in away.lower() for t in TURKISH_SUPER_LIG_TEAMS):
+            if ("Türkiye" in country and ("Süper Lig" in league_raw or "1. Lig" in league_raw)) or any(
+                t.lower() in home.lower() or t.lower() in away.lower() for t in TURKISH_SUPER_LIG_TEAMS
+            ):
                 prio += 6000
             if country == "Avrupa" and any(k in full_lg for k in ("Şampiyonlar Ligi", "Avrupa Ligi", "Konferans Ligi")):
                 prio += 4500
@@ -320,39 +326,49 @@ def update_from_official_iddaa() -> None:
                     break
 
     coupon_candidates = []
-    for m in selected:
+    # Kural 1: Sadece BUGÜN oynanacak maçlardan Türk devleri ve Avrupa'nın şampiyonluk yaşamış devlerini seç
+    for m in todays_events:
+        hn = m["home"]
+        an = m["away"]
+        if is_youth_or_reserve(hn) or is_youth_or_reserve(an):
+            continue
+
+        is_tr_giant = any(t.lower() in hn.lower() or t.lower() in an.lower() for t in TURKISH_GIANTS)
+        is_euro_champ = is_euro_giant(hn) or is_euro_giant(an)
+        if not (is_tr_giant or is_euro_champ):
+            continue
+
         f1 = float(m["ms1"]) if m["ms1"] != "-" else 99.0
         f2 = float(m["ms2"]) if m["ms2"] != "-" else 99.0
-        btts_val = float(m["btts"]) if m.get("btts") else 0.0
         o25_val = float(m["over25"]) if m.get("over25") else 0.0
 
         pick = None
         odd = 1.0
         confidence = 0
 
-        if 1.25 <= f2 <= 1.65:
-            pick, odd, confidence = "MS 2", f2, 105 - int(f2 * 20)
-        elif 1.25 <= f1 <= 1.65:
-            pick, odd, confidence = "MS 1", f1, 105 - int(f1 * 20)
-        elif 1.30 <= btts_val <= 1.50:
-            pick, odd, confidence = "KG VAR", btts_val, 85 - int(btts_val * 10)
-        elif 1.25 <= o25_val <= 1.50:
-            pick, odd, confidence = "2.5 ÜST", o25_val, 80 - int(o25_val * 10)
-        else:
-            if f1 <= 1.75:
-                pick, odd, confidence = "MS 1", f1, 70
-            elif f2 <= 1.75:
-                pick, odd, confidence = "MS 2", f2, 70
-            elif btts_val > 0:
-                pick, odd, confidence = "KG VAR", btts_val, 60
+        # Deplasmandaki dev favori (örn: Galatasaray, Inter, Barcelona, Dortmund)
+        if any(g.lower() in an.lower() for g in (TURKISH_GIANTS | EURO_CHAMPIONS)) and 1.15 <= f2 <= 1.60:
+            pick, odd, confidence = "MS 2", f2, 110 - int(f2 * 15)
+        # Evindeki dev favori (örn: Fenerbahçe, Man City, Roma)
+        elif any(g.lower() in hn.lower() for g in (TURKISH_GIANTS | EURO_CHAMPIONS)) and 1.15 <= f1 <= 1.60:
+            if f1 < 1.25 and 1.25 <= o25_val <= 1.50:
+                pick, odd, confidence = "2.5 ÜST", o25_val, 95 - int(o25_val * 10)
+            else:
+                pick, odd, confidence = "MS 1", f1, 110 - int(f1 * 15)
+        elif 1.20 <= o25_val <= 1.45:
+            pick, odd, confidence = "2.5 ÜST", o25_val, 85 - int(o25_val * 10)
 
         if pick and odd > 1.0:
-            is_turkish = any(t.lower() in m["home"].lower() or t.lower() in m["away"].lower() for t in TURKISH_SUPER_LIG_TEAMS)
-            is_euro_champ = is_euro_giant(m["home"]) or is_euro_giant(m["away"])
-            if is_turkish:
-                confidence += 50
-            if is_euro_champ:
-                confidence += 30
+            lg_str = m.get("league", "")
+            if is_tr_giant:
+                confidence += 100
+            elif is_euro_champ:
+                confidence += 70
+
+            # Popüler liglere ekstra öncelik ver
+            if any(k in lg_str for k in ("Süper Lig", "Premier Lig", "La Liga", "Serie A", "Bundesliga", "Ligue 1")):
+                confidence += 20
+
             coupon_candidates.append({
                 "match": m,
                 "pick": pick,
