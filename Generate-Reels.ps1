@@ -20,10 +20,8 @@ if (-not (Test-Path $PyExe)) {
 }
 
 if ($DataJsonPath -eq "") {
-    # Results modunda maç sonuçları default_data.json içinde saklandığı için bülten çekici çalıştırılmaz
-    if ($Mode -ne "results") {
-        & $PyExe $FetcherPy
-    }
+    # Hem bülten/oranları (iddaa.com) hem de biten maç sonuçlarını (Mackolik) güncel olarak çek
+    & $PyExe $FetcherPy
     & $PyExe $MotionPy --mode $Mode --category $Category
 } else {
     & $PyExe $MotionPy --mode $Mode --category $Category --data $DataJsonPath
