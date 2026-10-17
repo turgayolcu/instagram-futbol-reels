@@ -137,6 +137,7 @@ def expand_betting_terms_for_speech(text: str) -> str:
         (r"\bTG\b", "Toplam Gol"),
         (r"\bUnion SG\b", "Union Saint Gilloise"),
         (r"\bB\.\s*Leverkusen\b", "Bayer Leverkusen"),
+        (r"\bFK\b", "Futbol Kulübü"),
     ]
     out = text
     for pattern, repl in replacements:
@@ -176,9 +177,9 @@ def build_main_voiceover_text(payload: Dict[str, Any], mode: str) -> str:
     else:
         if payload.get("voiceover_results"):
             return expand_betting_terms_for_speech(str(payload["voiceover_results"]))
-        matches = payload.get("matches", [])[:12]
+        matches = (payload.get("results_matches") or payload.get("matches", []))[:12]
         res_list = []
-        for m in matches[:3]:
+        for m in matches[:4]:
             sc_parts = [p.strip() for p in m.get("score", "0 - 0").split("-")]
             if len(sc_parts) == 2:
                 res_list.append(f"{m['home']} {sc_parts[0]}, {m['away']} {sc_parts[1]}")
@@ -186,9 +187,9 @@ def build_main_voiceover_text(payload: Dict[str, Any], mode: str) -> str:
                 res_list.append(f"{m['home']} {m.get('score', '')} {m['away']}")
         res_str = ", ".join(res_list)
         raw = (
-            f"Günün maç sonuçları! "
-            f"Tamamlanan karşılaşmalarda {res_str} skorları kaydedildi. "
-            f"Tüm maç sonuçları ekranınızda."
+            f"Günün tamamlanan maç sonuçları! "
+            f"Karşılaşmalarda {res_str} skorları kaydedildi. "
+            f"Mackolik onaylı tüm maç sonuçları ekranınızda."
         )
         return expand_betting_terms_for_speech(raw)
 
@@ -296,7 +297,8 @@ def draw_header_and_footer(
                     fill=DARK_GREEN_TEXT,
                 )
     else:
-        draw.text((60, header_y_offset + 148), payload.get("subtitle", ""), font=FONTS["subbar"], fill=WHITE)
+        sub_str = payload.get("results_subtitle") or payload.get("subtitle", "")
+        draw.text((60, header_y_offset + 148), sub_str, font=FONTS["subbar"], fill=WHITE)
 
     fy = HEIGHT - 120
     draw.rounded_rectangle(
@@ -487,7 +489,10 @@ def render_frame(
             draw.text((815, 215), payload["col_res_right"], font=FONTS["head"], fill=IDDAA_YELLOW)
 
     if mode in ("odds", "results"):
-        matches: List[Dict[str, Any]] = payload.get("matches", [])[:12]
+        if mode == "results":
+            matches: List[Dict[str, Any]] = (payload.get("results_matches") or payload.get("matches", []))[:12]
+        else:
+            matches = payload.get("matches", [])[:12]
         start_y = 255
         row_h = 124
         for i, m in enumerate(matches):
@@ -574,7 +579,7 @@ def render_frame(
                 width=2,
             )
 
-            match_str = f"{c['home']} - {c['away']}"[:28]
+            match_str = f"{c['home']} - {c['away']}"[:36]
             draw.text((x1 + 30, y1 + 22), f"{c['time']}  |  {c['league']}", font=FONTS["league"], fill=IDDAA_MINT)
             draw.text((x1 + 30, y1 + 62), match_str, font=FONTS["match"], fill=WHITE)
 

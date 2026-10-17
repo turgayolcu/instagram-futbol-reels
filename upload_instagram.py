@@ -46,7 +46,7 @@ def format_caption(raw_caption: str, base_dir: Path) -> str:
     caption = raw_caption.strip()
     fetched_at = get_fetched_timestamp(base_dir)
     if "sonuç" in caption.lower() or "results" in caption.lower():
-        source_line = f"📌 Kaynak: iddaa.com (Bilgilendirme Saati: {fetched_at} TSİ | +18 Sadece bilgilendirme amaçlıdır.)"
+        source_line = f"📌 Kaynak: Mackolik.com & iddaa.com (Maç Sonuçları Teyit Saati: {fetched_at} TSİ | +18 Sadece bilgilendirme amaçlıdır.)"
     else:
         source_line = (
             f"📌 Kaynak: iddaa.com (Oranların eklendiği saat: {fetched_at} TSİ | "

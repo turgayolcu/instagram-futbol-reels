@@ -2,7 +2,7 @@
   "title": "GÜNÜN MAÇLARI & ORANLAR",
   "coupon_title": "GÜNÜN BANKO KUPONU",
   "results_title": "GÜNÜN MAÇ SONUÇLARI",
-  "subtitle": "15 EKİM PERŞEMBE  •  RESMİ İDDAA.COM BÜLTENİ",
+  "subtitle": "17 EKİM CUMARTESİ  •  RESMİ İDDAA.COM BÜLTENİ",
   "cta_spor": "Hemen oynamak için iddaa.com'a gir bayi kodunu 304168 yap",
   "cta_tjk": "Hemen oynamak için bayi kodunu 1607 yap (TJK)",
   "cta_mp": "Hemen oynamak için Milli Piyango bayi kodunu 117718 yap",
@@ -13,162 +13,286 @@
   "col_res_left": "LİG / KARŞILAŞMA",
   "col_res_right": "MAÇ SONUCU",
   "total_odd_label": "TOPLAM KUPON ORANI",
-  "disclaimer": "Sadece bilgilendirme amaçlıdır.",
+  "disclaimer": "+18 | Sadece bilgilendirme amaçlıdır.",
+  "odds_fetched_at": "17.10.2026 - 13:50",
   "matches": [
     {
-      "time": "22:00",
-      "league": "Avrupa Ligi",
-      "home": "Hoffenheim",
-      "away": "Beşiktaş",
-      "ms1": "1.86",
-      "msx": "3.59",
-      "ms2": "3.18",
-      "score": "0 - 0"
+      "time": "16:00",
+      "league": "Süper Lig",
+      "home": "Amed Sportif Faaliyetler",
+      "away": "Konyaspor",
+      "ms1": "1.71",
+      "msx": "3.26",
+      "ms2": "3.95",
+      "score": "-"
     },
     {
-      "time": "19:45",
-      "league": "Konferans Ligi",
-      "home": "Kuopion",
-      "away": "Trabzonspor",
-      "ms1": "5.64",
-      "msx": "4.24",
-      "ms2": "1.39",
-      "score": "0 - 0"
+      "time": "16:00",
+      "league": "Süper Lig",
+      "home": "Gençlerbirliği",
+      "away": "Galatasaray",
+      "ms1": "6.34",
+      "msx": "4.92",
+      "ms2": "1.28",
+      "score": "-"
     },
     {
-      "time": "19:45",
-      "league": "Avrupa Ligi",
-      "home": "Lyon",
-      "away": "Crystal Palace",
-      "ms1": "2.15",
+      "time": "19:00",
+      "league": "Süper Lig",
+      "home": "Fenerbahçe",
+      "away": "Alanyaspor",
+      "ms1": "1.18",
+      "msx": "5.59",
+      "ms2": "8.66",
+      "score": "-"
+    },
+    {
+      "time": "16:00",
+      "league": "1. Lig",
+      "home": "Sivasspor",
+      "away": "Sarıyer",
+      "ms1": "2.14",
+      "msx": "3.03",
+      "ms2": "2.65",
+      "score": "-"
+    },
+    {
+      "time": "19:00",
+      "league": "1. Lig",
+      "home": "Bodrum FK",
+      "away": "Bandırmaspor",
+      "ms1": "2.36",
+      "msx": "2.97",
+      "ms2": "2.41",
+      "score": "-"
+    },
+    {
+      "time": "14:30",
+      "league": "Premier Lig",
+      "home": "Everton",
+      "away": "Chelsea",
+      "ms1": "2.63",
+      "msx": "3.27",
+      "ms2": "2.20",
+      "score": "-"
+    },
+    {
+      "time": "17:00",
+      "league": "Premier Lig",
+      "home": "Manchester City",
+      "away": "Ipswich Town",
+      "ms1": "1.15",
+      "msx": "6.43",
+      "ms2": "9.12",
+      "score": "-"
+    },
+    {
+      "time": "17:00",
+      "league": "Premier Lig",
+      "home": "Brentford",
+      "away": "Liverpool",
+      "ms1": "2.18",
       "msx": "3.39",
-      "ms2": "2.69",
-      "score": "0 - 0"
+      "ms2": "2.56",
+      "score": "-"
     },
     {
-      "time": "19:45",
-      "league": "Avrupa Ligi",
-      "home": "Salzburg",
-      "away": "AC Milan",
-      "ms1": "3.20",
-      "msx": "3.49",
-      "ms2": "1.87",
-      "score": "0 - 0"
-    },
-    {
-      "time": "19:45",
-      "league": "Avrupa Ligi",
-      "home": "Lech Poznan",
-      "away": "B. Leverkusen",
-      "ms1": "4.75",
-      "msx": "4.37",
-      "ms2": "1.45",
-      "score": "0 - 0"
-    },
-    {
-      "time": "22:00",
-      "league": "Avrupa Ligi",
-      "home": "Celta Vigo",
-      "away": "Juventus",
-      "ms1": "3.29",
-      "msx": "2.94",
-      "ms2": "2.06",
-      "score": "0 - 0"
-    },
-    {
-      "time": "22:00",
-      "league": "Avrupa Ligi",
-      "home": "Benfica",
-      "away": "Celtic",
-      "ms1": "1.13",
-      "msx": "6.60",
-      "ms2": "10.60",
-      "score": "0 - 0"
-    },
-    {
-      "time": "22:00",
-      "league": "Avrupa Ligi",
-      "home": "Marsilya",
-      "away": "Olympiacos",
-      "ms1": "2.19",
-      "msx": "3.20",
-      "ms2": "2.75",
-      "score": "0 - 0"
-    },
-    {
-      "time": "19:45",
-      "league": "Konferans Ligi",
-      "home": "Hajduk Split",
-      "away": "Ajax",
-      "ms1": "4.40",
-      "msx": "4.02",
+      "time": "15:00",
+      "league": "La Liga",
+      "home": "Espanyol",
+      "away": "Atletico Madrid",
+      "ms1": "4.45",
+      "msx": "3.76",
       "ms2": "1.53",
-      "score": "0 - 0"
+      "score": "-"
     },
     {
-      "time": "19:45",
-      "league": "Konferans Ligi",
-      "home": "CSKA Sofya",
-      "away": "Monaco",
-      "ms1": "5.54",
-      "msx": "4.27",
-      "ms2": "1.39",
-      "score": "0 - 0"
+      "time": "19:30",
+      "league": "La Liga",
+      "home": "Real Betis",
+      "away": "Barcelona",
+      "ms1": "5.03",
+      "msx": "5.07",
+      "ms2": "1.34",
+      "score": "-"
     },
     {
-      "time": "19:45",
-      "league": "Avrupa Ligi",
-      "home": "NK Celje",
-      "away": "Omonia",
-      "ms1": "2.52",
-      "msx": "3.19",
-      "ms2": "2.38",
-      "score": "0 - 0"
+      "time": "16:00",
+      "league": "Serie A",
+      "home": "Venezia",
+      "away": "Napoli",
+      "ms1": "4.19",
+      "msx": "3.65",
+      "ms2": "1.59",
+      "score": "-"
     },
     {
-      "time": "19:45",
-      "league": "Avrupa Ligi",
-      "home": "Sparta Prag",
-      "away": "Lillestrom",
-      "ms1": "1.23",
-      "msx": "5.38",
-      "ms2": "7.55",
-      "score": "0 - 0"
+      "time": "19:00",
+      "league": "Serie A",
+      "home": "Bologna",
+      "away": "Inter",
+      "ms1": "5.21",
+      "msx": "4.01",
+      "ms2": "1.43",
+      "score": "-"
     }
   ],
   "coupon": [
     {
-      "time": "22:00",
-      "league": "Avrupa Ligi",
-      "home": "Hoffenheim",
-      "away": "Beşiktaş",
-      "pick": "KG VAR",
+      "time": "16:00",
+      "league": "Süper Lig",
+      "home": "Gençlerbirliği",
+      "away": "Galatasaray",
+      "pick": "MS 2",
+      "odd": "1.28"
+    },
+    {
+      "time": "16:00",
+      "league": "Süper Lig",
+      "home": "Amed Sportif Faaliyetler",
+      "away": "Konyaspor",
+      "pick": "MS 1",
+      "odd": "1.71"
+    },
+    {
+      "time": "19:00",
+      "league": "Süper Lig",
+      "home": "Fenerbahçe",
+      "away": "Alanyaspor",
+      "pick": "2.5 ÜST",
       "odd": "1.38"
     },
     {
-      "time": "19:45",
-      "league": "Konferans Ligi",
-      "home": "Kuopion",
-      "away": "Trabzonspor",
-      "pick": "MS 2",
-      "odd": "1.39"
-    },
-    {
-      "time": "19:45",
-      "league": "Avrupa Ligi",
-      "home": "Lyon",
-      "away": "Crystal Palace",
+      "time": "16:00",
+      "league": "1. Lig",
+      "home": "Sivasspor",
+      "away": "Sarıyer",
       "pick": "KG VAR",
-      "odd": "1.41"
-    },
-    {
-      "time": "19:45",
-      "league": "Avrupa Ligi",
-      "home": "Salzburg",
-      "away": "AC Milan",
-      "pick": "KG VAR",
-      "odd": "1.44"
+      "odd": "1.59"
     }
   ],
-  "total_odd": "3.89"
+  "total_odd": "4.80",
+  "results_subtitle": "17 EKİM CUMARTESİ  •  KAYNAK: MACKOLİK MAÇ SONUÇLARI",
+  "results_matches": [
+    {
+      "time": "MS",
+      "league": "Süper Lig",
+      "home": "Çorum FK",
+      "away": "Çaykur Rizespor",
+      "ms1": "-",
+      "msx": "-",
+      "ms2": "-",
+      "score": "2 - 1"
+    },
+    {
+      "time": "MS",
+      "league": "La Liga",
+      "home": "Deportivo La Coruna",
+      "away": "Levante",
+      "ms1": "-",
+      "msx": "-",
+      "ms2": "-",
+      "score": "1 - 1"
+    },
+    {
+      "time": "MS",
+      "league": "Serie A",
+      "home": "Frosinone",
+      "away": "Sassuolo",
+      "ms1": "-",
+      "msx": "-",
+      "ms2": "-",
+      "score": "4 - 2"
+    },
+    {
+      "time": "MS",
+      "league": "Ligue 1",
+      "home": "Le Mans FC",
+      "away": "Toulouse",
+      "ms1": "-",
+      "msx": "-",
+      "ms2": "-",
+      "score": "0 - 3"
+    },
+    {
+      "time": "MS",
+      "league": "Bundesliga",
+      "home": "Eintracht Frankfurt",
+      "away": "Köln",
+      "ms1": "-",
+      "msx": "-",
+      "ms2": "-",
+      "score": "1 - 0"
+    },
+    {
+      "time": "MS",
+      "league": "Eredivisie",
+      "home": "Heerenveen",
+      "away": "Excelsior",
+      "ms1": "-",
+      "msx": "-",
+      "ms2": "-",
+      "score": "4 - 0"
+    },
+    {
+      "time": "MS",
+      "league": "Championship",
+      "home": "Burnley",
+      "away": "Wolverhampton",
+      "ms1": "-",
+      "msx": "-",
+      "ms2": "-",
+      "score": "1 - 2"
+    },
+    {
+      "time": "MS",
+      "league": "2.Lig",
+      "home": "Leganes",
+      "away": "Cordoba",
+      "ms1": "-",
+      "msx": "-",
+      "ms2": "-",
+      "score": "0 - 1"
+    },
+    {
+      "time": "MS",
+      "league": "Serie B",
+      "home": "Hellas Verona",
+      "away": "Catanzaro",
+      "ms1": "-",
+      "msx": "-",
+      "ms2": "-",
+      "score": "2 - 2"
+    },
+    {
+      "time": "MS",
+      "league": "Ligue 2",
+      "home": "Guingamp",
+      "away": "Pau",
+      "ms1": "-",
+      "msx": "-",
+      "ms2": "-",
+      "score": "1 - 2"
+    },
+    {
+      "time": "MS",
+      "league": "Ligue 2",
+      "home": "Stade Lavallois",
+      "away": "Clermont",
+      "ms1": "-",
+      "msx": "-",
+      "ms2": "-",
+      "score": "3 - 3"
+    },
+    {
+      "time": "MS",
+      "league": "Ligue 2",
+      "home": "Annecy",
+      "away": "Nancy",
+      "ms1": "-",
+      "msx": "-",
+      "ms2": "-",
+      "score": "1 - 2"
+    }
+  ]
 }
