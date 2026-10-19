@@ -40,6 +40,24 @@ EURO_CHAMPIONS = {
     "Benfica", "Porto", "Sporting CP", "Ajax", "PSV", "Feyenoord", "Celtic",
 }
 
+# Kendi liginde şampiyonluk yaşamış devler ve kupa sayıları
+CLUB_CHAMPIONSHIPS = {
+    # Türkiye
+    "Galatasaray": 24, "Fenerbahçe": 19, "Beşiktaş": 16, "Trabzonspor": 7, "Başakşehir": 1, "Bursaspor": 1,
+    # İspanya
+    "Real Madrid": 36, "Barcelona": 27, "Atletico Madrid": 11, "Athletic Bilbao": 8, "Valencia": 6, "Real Sociedad": 2, "Sevilla": 1, "Real Betis": 1, "Deportivo": 1,
+    # İtalya
+    "Juventus": 36, "Inter": 20, "AC Milan": 19, "Genoa": 9, "Torino": 7, "Bologna": 7, "Roma": 3, "AS Roma": 3, "Napoli": 3, "Lazio": 2, "Fiorentina": 2,
+    # İngiltere
+    "Manchester United": 20, "Liverpool": 19, "Arsenal": 13, "Manchester City": 10, "Everton": 9, "Aston Villa": 7, "Chelsea": 6, "Newcastle": 4, "Leeds United": 3, "Tottenham": 2, "Nottingham Forest": 1,
+    # Almanya
+    "Bayern Münih": 33, "Borussia Dortmund": 8, "B. Dortmund": 8, "Schalke": 7, "Hamburger SV": 6, "VfB Stuttgart": 5, "Borussia Mönchengladbach": 8, "Monchengladbach": 8, "B. Leverkusen": 10, "Bayer Leverkusen": 10, "Werder Bremen": 4, "Köln": 3, "Wolfsburg": 1, "Eintracht Frankfurt": 1,
+    # Fransa
+    "PSG": 12, "Paris Saint-Germain": 12, "Saint-Etienne": 10, "Marsilya": 9, "Marseille": 9, "Monaco": 8, "Nantes": 8, "Lyon": 7, "Bordeaux": 6, "Lille": 4, "Nice": 4, "Lens": 1, "RC Lens": 1, "Strasbourg": 1, "Rennes": 0, "Montpellier": 1, "AJ Auxerre": 1,
+    # Diğer
+    "Benfica": 38, "Porto": 30, "Sporting CP": 20, "Ajax": 36, "PSV": 25, "Feyenoord": 16, "Celtic": 54, "Rangers": 55, "Anderlecht": 34, "Club Brugge": 19, "Olympiacos": 47, "Panathinaikos": 20,
+}
+
 MONTHS_TR = [
     "", "OCAK", "ŞUBAT", "MART", "NİSAN", "MAYIS", "HAZİRAN",
     "TEMMUZ", "AĞUSTOS", "EYLÜL", "EKİM", "KASIM", "ARALIK"
@@ -90,6 +108,9 @@ def clean_league_name(full_name: str, short_name: str) -> str:
         return "Bundesliga"
     if "Fransa Ligue 1" in full_name:
         return "Ligue 1"
+    if "Süper Lig" in full_name or short_name.strip() in ("Süper Lig", "Superliga"):
+        prefix = full_name.split()[0] if full_name else ""
+        return f"{prefix} Ligi"[:18]
     return short_name.strip() or full_name[:18]
 
 
@@ -252,12 +273,16 @@ def update_from_official_iddaa() -> None:
     tz_tr = datetime.timezone(datetime.timedelta(hours=3))
     now_tr = datetime.datetime.now(tz_tr)
     today_date = now_tr.date()
+    weekday = now_tr.weekday()  # 0: Pazartesi, 1: Salı, 2: Çarşamba, 3: Perşembe, 4: Cuma, 5: Cumartesi, 6: Pazar
 
     comp_map = get_competitions_map()
     ev_data = fetch_json(EVENTS_URL)
     events = ev_data.get("data", {}).get("events", [])
 
-    todays_events: List[Dict[str, Any]] = []
+    # 1) Sadece BUGÜN oynanacak maçları topla (asla ertesi günün maçlarını alma)
+    raw_today_events = []
+    has_cl_today = False
+    has_uel_uecl_today = False
 
     for ev in events:
         ts = ev.get("d", 0)
@@ -265,52 +290,113 @@ def update_from_official_iddaa() -> None:
         if dt_tr.date() != today_date:
             continue
 
+        ci = int(ev.get("ci", 0))
+        comp = comp_map.get(ci, {})
+        league_full = str(comp.get("n", "Futbol"))
+        hn = str(ev.get("hn", "")).strip()
+        an = str(ev.get("an", "")).strip()
+
+        if is_youth_or_reserve(hn) or is_youth_or_reserve(an) or is_youth_or_reserve(league_full):
+            continue
+
+        if "UEFA Şampiyonlar Ligi" in league_full or "Şampiyonlar Ligi" in league_full:
+            has_cl_today = True
+        if "UEFA Avrupa Ligi" in league_full or "UEFA Konferans Ligi" in league_full:
+            has_uel_uecl_today = True
+
+        raw_today_events.append((ev, comp, dt_tr, league_full, hn, an))
+
+    # Kural 1: Konsept belirleme
+    # - Hafta içi Salı/Çarşamba Şampiyonlar Ligi maçları varsa konsept Şampiyonlar Ligi
+    # - Çarşamba/Perşembe UEFA Avrupa ve Konferans Ligi varsa bu ligler
+    # - Diğer günlerde Türkiye Süper Lig ve Avrupa'nın 5 büyük ligi
+    concept = "SUPER_LIG_BIG5"
+    if weekday in (1, 2) and has_cl_today:
+        concept = "CHAMPIONS_LEAGUE"
+    elif weekday in (2, 3) and has_uel_uecl_today:
+        concept = "EUROPA_CONFERENCE"
+
+    target_5_leagues = [
+        ("Türkiye Süper Lig", "Süper Lig"),
+        ("İngiltere Premier Lig", "Premier Lig"),
+        ("İspanya La Liga", "La Liga"),
+        ("İtalya Serie A", "Serie A"),
+        ("Almanya Bundesliga", "Bundesliga"),
+        ("Fransa Ligue 1", "Ligue 1"),
+    ]
+
+    tr_matches: List[Dict[str, Any]] = []
+    euro_matches: List[Dict[str, Any]] = []
+    all_valid_events: List[Dict[str, Any]] = []
+
+    for ev, comp, dt_tr, league_full, hn, an in raw_today_events:
         odds = extract_iddaa_odds(ev.get("m", []))
         if odds["ms1"] == "-":
             continue
 
-        ci = int(ev.get("ci", 0))
-        comp = comp_map.get(ci, {})
-        league_full = str(comp.get("n", "Futbol"))
         league_clean = clean_league_name(league_full, str(comp.get("sn", "")))
-        comp_prio = int(comp.get("p", 9999))
+        time_str = dt_tr.strftime("%H:%M")
 
-        hn = str(ev.get("hn", "")).strip()
-        an = str(ev.get("an", "")).strip()
+        match_item = {
+            "time": time_str,
+            "league": league_clean,
+            "home": hn,
+            "away": an,
+            "ms1": odds["ms1"],
+            "msx": odds["msx"],
+            "ms2": odds["ms2"],
+            "over25": odds["over25"],
+            "btts": odds["btts"],
+            "score": "-",
+        }
+        all_valid_events.append(match_item)
 
-        score_prio = 0
-        if any(t.lower() in hn.lower() or t.lower() in an.lower() for t in TURKISH_SUPER_LIG_TEAMS):
-            score_prio += 6000
-        if "Türkiye Süper Lig" in league_full:
-            score_prio += 4000
-        if "Türkiye 1. Lig" in league_full:
-            score_prio += 2500
-        if any(k in league_full for k in ("UEFA Şampiyonlar Ligi", "UEFA Avrupa Ligi", "UEFA Konferans Ligi")):
-            score_prio += 3000
-        if is_euro_giant(hn) or is_euro_giant(an):
-            score_prio += 1500
-        if is_youth_or_reserve(hn) or is_youth_or_reserve(an) or is_youth_or_reserve(league_full):
-            score_prio -= 2000
-        score_prio += max(0, 500 - comp_prio)
-
-        todays_events.append(
-            {
-                "prio": score_prio,
-                "time": dt_tr.strftime("%H:%M"),
-                "league": league_clean,
-                "home": hn,
-                "away": an,
-                "ms1": odds["ms1"],
-                "msx": odds["msx"],
-                "ms2": odds["ms2"],
-                "over25": odds["over25"],
-                "btts": odds["btts"],
-                "score": "-",
-            }
+        is_turkish = (
+            "Türkiye Süper Lig" in league_full
+            or ("Süper Lig" in league_clean and ("Türkiye" in league_full or "Turkiye" in league_full))
         )
 
-    todays_events.sort(key=lambda x: (-x["prio"], x["time"]))
-    selected = todays_events[:12]
+        if concept == "CHAMPIONS_LEAGUE":
+            is_target_league = "Şampiyonlar Ligi" in league_full or is_turkish
+            if is_turkish and "Süper Lig" not in match_item["league"]:
+                match_item["league"] = "Süper Lig"
+        elif concept == "EUROPA_CONFERENCE":
+            is_target_league = (
+                "UEFA Avrupa Ligi" in league_full
+                or "UEFA Konferans Ligi" in league_full
+                or is_turkish
+            )
+            if is_turkish and "Süper Lig" not in match_item["league"]:
+                match_item["league"] = "Süper Lig"
+        else:
+            # Türkiye Süper Lig ve Avrupa'nın 5 büyük ligi
+            is_target_league = False
+            if is_turkish:
+                is_target_league = True
+                match_item["league"] = "Süper Lig"
+            else:
+                for tl_full, tl_short in target_5_leagues:
+                    if tl_full in league_full and "2." not in league_full and "La Liga 2" not in league_full:
+                        is_target_league = True
+                        match_item["league"] = tl_short
+                        break
+
+        if not is_target_league:
+            continue
+
+        if is_turkish:
+            tr_matches.append(match_item)
+        else:
+            titles = max(CLUB_CHAMPIONSHIPS.get(hn, 0), CLUB_CHAMPIONSHIPS.get(an, 0))
+            match_item["titles"] = titles
+            euro_matches.append(match_item)
+
+    # Kural 2: Listenin EN BAŞINDA Türk takımları gelecek,
+    # ardından kendi liginde en çok şampiyonluk yaşamış popüler takımlar sıralanacak (maksimum 12 maç).
+    tr_matches.sort(key=lambda x: x["time"])
+    euro_matches.sort(key=lambda x: (-x.get("titles", 0), x["time"]))
+
+    selected = (tr_matches + euro_matches)[:12]
 
     # Mackolik'ten doğrulanmış biten maç sonuçlarını çek
     verified_results = fetch_mackolik_verified_results(today_date)
@@ -326,18 +412,10 @@ def update_from_official_iddaa() -> None:
                     break
 
     coupon_candidates = []
-    # Kural 1: Sadece BUGÜN oynanacak maçlardan Türk devleri ve Avrupa'nın şampiyonluk yaşamış devlerini seç
-    for m in todays_events:
+    # Günün maçlarından en güvenilir banko seçimleri hazırla
+    for m in selected:
         hn = m["home"]
         an = m["away"]
-        if is_youth_or_reserve(hn) or is_youth_or_reserve(an):
-            continue
-
-        is_tr_giant = any(t.lower() in hn.lower() or t.lower() in an.lower() for t in TURKISH_GIANTS)
-        is_euro_champ = is_euro_giant(hn) or is_euro_giant(an)
-        if not (is_tr_giant or is_euro_champ):
-            continue
-
         f1 = float(m["ms1"]) if m["ms1"] != "-" else 99.0
         f2 = float(m["ms2"]) if m["ms2"] != "-" else 99.0
         o25_val = float(m["over25"]) if m.get("over25") else 0.0
@@ -346,29 +424,16 @@ def update_from_official_iddaa() -> None:
         odd = 1.0
         confidence = 0
 
-        # Deplasmandaki dev favori (örn: Galatasaray, Inter, Barcelona, Dortmund)
-        if any(g.lower() in an.lower() for g in (TURKISH_GIANTS | EURO_CHAMPIONS)) and 1.15 <= f2 <= 1.60:
-            pick, odd, confidence = "MS 2", f2, 110 - int(f2 * 15)
-        # Evindeki dev favori (örn: Fenerbahçe, Man City, Roma)
-        elif any(g.lower() in hn.lower() for g in (TURKISH_GIANTS | EURO_CHAMPIONS)) and 1.15 <= f1 <= 1.60:
-            if f1 < 1.25 and 1.25 <= o25_val <= 1.50:
-                pick, odd, confidence = "2.5 ÜST", o25_val, 95 - int(o25_val * 10)
-            else:
-                pick, odd, confidence = "MS 1", f1, 110 - int(f1 * 15)
-        elif 1.20 <= o25_val <= 1.45:
+        if 1.12 <= f1 <= 1.65:
+            pick, odd, confidence = "MS 1", f1, 100 - int(f1 * 15)
+        elif 1.15 <= f2 <= 1.65:
+            pick, odd, confidence = "MS 2", f2, 100 - int(f2 * 15)
+        elif 1.25 <= o25_val <= 1.60:
             pick, odd, confidence = "2.5 ÜST", o25_val, 85 - int(o25_val * 10)
 
         if pick and odd > 1.0:
-            lg_str = m.get("league", "")
-            if is_tr_giant:
-                confidence += 100
-            elif is_euro_champ:
-                confidence += 70
-
-            # Popüler liglere ekstra öncelik ver
-            if any(k in lg_str for k in ("Süper Lig", "Premier Lig", "La Liga", "Serie A", "Bundesliga", "Ligue 1")):
+            if any(t.lower() in hn.lower() or t.lower() in an.lower() for t in TURKISH_SUPER_LIG_TEAMS):
                 confidence += 20
-
             coupon_candidates.append({
                 "match": m,
                 "pick": pick,
@@ -398,14 +463,21 @@ def update_from_official_iddaa() -> None:
     subtitle_date = f"{now_tr.day} {MONTHS_TR[now_tr.month]} {DAYS_TR[now_tr.weekday()]}"
     fetched_time_str = now_tr.strftime("%d.%m.%Y - %H:%M")
     payload = json.loads(DEFAULT_JSON.read_text(encoding="utf-8")) if DEFAULT_JSON.exists() else {}
-    # Eski sabit voiceover_results metnini temizle ki Mackolik sonuçlarını dinamik okusun
     payload.pop("voiceover_results", None)
     payload.pop("voiceover_coupon", None)
 
-    payload["title"] = "GÜNÜN MAÇLARI & ORANLAR"
+    if concept == "CHAMPIONS_LEAGUE":
+        payload["title"] = "ŞAMPİYONLAR LİGİ & ORANLAR"
+        payload["subtitle"] = f"{subtitle_date}  •  ŞAMPİYONLAR LİGİ BÜLTENİ"
+    elif concept == "EUROPA_CONFERENCE":
+        payload["title"] = "AVRUPA & KONFERANS LİGİ"
+        payload["subtitle"] = f"{subtitle_date}  •  UEFA AVRUPA & KONFERANS BÜLTENİ"
+    else:
+        payload["title"] = "GÜNÜN MAÇLARI & ORANLAR"
+        payload["subtitle"] = f"{subtitle_date}  •  RESMİ İDDAA.COM BÜLTENİ"
+
     payload["coupon_title"] = "GÜNÜN BANKO KUPONU"
     payload["results_title"] = "GÜNÜN MAÇ SONUÇLARI"
-    payload["subtitle"] = f"{subtitle_date}  •  RESMİ İDDAA.COM BÜLTENİ"
     payload["results_subtitle"] = f"{subtitle_date}  •  KAYNAK: MACKOLİK MAÇ SONUÇLARI"
     payload["cta_spor"] = "Hemen oynamak için iddaa.com'a gir bayi kodunu 304168 yap"
     payload["cta_tjk"] = "Hemen oynamak için bayi kodunu 1607 yap (TJK)"

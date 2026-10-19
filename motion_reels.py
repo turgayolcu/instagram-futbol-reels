@@ -196,19 +196,21 @@ def build_main_voiceover_text(payload: Dict[str, Any], mode: str) -> str:
 
 async def generate_tts(text: str, out_mp3: Path, voice: str = "tr-TR-AhmetNeural") -> None:
     """
-    Sadece erkek spiker sesi (tr-TR-AhmetNeural) kullanır.
+    Sadece erkek spiker sesi kullanır (tr-TR-AhmetNeural / en-US-BrianMultilingualNeural / en-US-AndrewMultilingualNeural).
     Kadın sesi (gTTS) kesinlikle kullanılmaz.
     """
+    candidate_voices = [voice, "en-US-BrianMultilingualNeural", "en-US-AndrewMultilingualNeural"]
     last_err: Optional[Exception] = None
-    for attempt in range(10):
-        try:
-            communicate = edge_tts.Communicate(text, voice=voice)
-            await communicate.save(str(out_mp3))
-            if out_mp3.exists() and out_mp3.stat().st_size > 1000:
-                return
-        except Exception as e:
-            last_err = e
-        await asyncio.sleep(1.0 + attempt * 0.4)
+    for v in candidate_voices:
+        for attempt in range(3):
+            try:
+                communicate = edge_tts.Communicate(text, voice=v)
+                await communicate.save(str(out_mp3))
+                if out_mp3.exists() and out_mp3.stat().st_size > 1000:
+                    return
+            except Exception as e:
+                last_err = e
+            await asyncio.sleep(0.5)
     if last_err is not None:
         raise last_err
 
@@ -299,6 +301,11 @@ def draw_header_and_footer(
     else:
         sub_str = payload.get("results_subtitle") or payload.get("subtitle", "")
         draw.text((60, header_y_offset + 148), sub_str, font=FONTS["subbar"], fill=WHITE)
+
+    # Sağ üst köşede sabit 'SORUMLU OYUN' rozeti
+    so_x1, so_y1, so_x2, so_y2 = WIDTH - 235, header_y_offset + 8, WIDTH - 22, header_y_offset + 44
+    draw.rounded_rectangle([so_x1, so_y1, so_x2, so_y2], radius=8, fill=(10, 28, 18), outline=IDDAA_YELLOW, width=2)
+    draw.text((so_x1 + 14, so_y1 + 6), "+18 SORUMLU OYUN", font=load_font(19, True), fill=IDDAA_YELLOW)
 
     fy = HEIGHT - 120
     draw.rounded_rectangle(

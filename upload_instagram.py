@@ -12,9 +12,9 @@ import sys
 from pathlib import Path
 
 MANDATORY_DEALER_BLOCK = (
-    "İddaa Bayi Kod : 304168\n"
-    "Tjk Bayi Kod : 1607\n"
-    "Milli Piyango Bayi Kod : 117718"
+    "İddaa: 304168\n"
+    "Tjk: 1607\n"
+    "Milli Piyango: 117718"
 )
 
 
@@ -46,14 +46,16 @@ def format_caption(raw_caption: str, base_dir: Path) -> str:
     caption = raw_caption.strip()
     fetched_at = get_fetched_timestamp(base_dir)
     if "sonuç" in caption.lower() or "results" in caption.lower():
-        source_line = f"📌 Kaynak: Mackolik.com & iddaa.com (Maç Sonuçları Teyit Saati: {fetched_at} TSİ | +18 Sadece bilgilendirme amaçlıdır.)"
+        source_line = f"📌 Kaynak: Mackolik.com & iddaa.com (Maç Sonuçları Teyit Saati: {fetched_at} TSİ | +18 SORUMLU OYUN | Sadece bilgilendirme amaçlıdır.)"
     else:
         source_line = (
             f"📌 Kaynak: iddaa.com (Oranların eklendiği saat: {fetched_at} TSİ | "
-            f"Oranlar değişiklik gösterebilir. +18 Sadece bilgilendirme amaçlıdır.)"
+            f"Oranlar değişiklik gösterebilir. +18 SORUMLU OYUN | Sadece bilgilendirme amaçlıdır.)"
         )
 
     parts = [p for p in [caption, source_line] if p]
+    if "sorumlu oyun" not in caption.lower():
+        parts.append("⚠️ +18 | SORUMLU OYUN")
     if "304168" not in caption:
         parts.append(MANDATORY_DEALER_BLOCK)
     return "\n\n".join(parts)
@@ -99,6 +101,22 @@ def upload_reel(video_path: Path, caption: str) -> bool:
         cl.login(username, password)
         cl.dump_settings(str(session_file))
         print(f"[OK] Oturum kaydedildi: {session_file}")
+
+    # Otomasyon videolarında (reels_odds_latest, reels_coupon_latest, reels_results_latest)
+    # son 3 saat içinde aynı konsept zaten paylaşıldıysa mükerrer paylaşımı önle
+    if video_path.name in ("reels_odds_latest.mp4", "reels_coupon_latest.mp4", "reels_results_latest.mp4"):
+        try:
+            recent_medias = cl.user_medias_v1(int(cl.user_id), amount=4)
+            now_utc = datetime.datetime.now(datetime.timezone.utc)
+            key_phrase = caption.split("!")[0].strip().lower()
+            for m in recent_medias:
+                if m.taken_at and (now_utc - m.taken_at).total_seconds() < 3 * 3600:
+                    m_cap = (m.caption_text or "").lower()
+                    if key_phrase and key_phrase in m_cap:
+                        print(f"[BİLGİ] '{key_phrase}' son 3 saat içinde zaten paylaşılmış (PK: {m.pk}). Mükerrer paylaşım atlandı.")
+                        return True
+        except Exception as e:
+            print(f"[UYARI] Son paylaşım kontrolü yapılamadı, yüklemeye devam ediliyor: {e}")
 
     print(f"[2/3] Reels videosu Instagram'a yükleniyor: {video_path.name} ...")
     thumb_path = video_path.with_suffix(".png")
