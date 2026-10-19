@@ -194,15 +194,16 @@ def build_main_voiceover_text(payload: Dict[str, Any], mode: str) -> str:
         return expand_betting_terms_for_speech(raw)
 
 
-async def generate_tts(text: str, out_mp3: Path, voice: str = "tr-TR-AhmetNeural") -> None:
+async def generate_tts(text: str, out_mp3: Path, voice: str = "en-US-BrianMultilingualNeural") -> None:
     """
-    Sadece erkek spiker sesi kullanır (tr-TR-AhmetNeural / en-US-BrianMultilingualNeural / en-US-AndrewMultilingualNeural).
-    Kadın sesi (gTTS) kesinlikle kullanılmaz.
+    Sabit ana spiker sesi olarak 'DerdKv-RRID' Reels paylaşımındaki erkek sesi
+    (en-US-BrianMultilingualNeural) kullanılır. Kadın sesi (gTTS) kesinlikle kullanılmaz.
     """
-    candidate_voices = [voice, "en-US-BrianMultilingualNeural", "en-US-AndrewMultilingualNeural"]
+    primary_voice = "en-US-BrianMultilingualNeural"
+    candidate_voices = [primary_voice, "en-US-AndrewMultilingualNeural"]
     last_err: Optional[Exception] = None
     for v in candidate_voices:
-        for attempt in range(3):
+        for attempt in range(4):
             try:
                 communicate = edge_tts.Communicate(text, voice=v)
                 await communicate.save(str(out_mp3))
