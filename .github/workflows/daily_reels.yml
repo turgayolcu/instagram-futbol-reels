@@ -2,13 +2,17 @@ name: Instagram Gunluk Futbol Reels Otomasyonu
 
 on:
   schedule:
-    # Sabah 10:02 TSİ (UTC 07:02) - Her gün Günün Maçları (:00 GitHub kuyruk yoğunluğunu aşmak için)
+    # Sabah ~10:00 TSİ - Her gün Günün Maçları & Oranlar (GitHub kuyruk gecikmesine karşı erken + yedek tetikleyici; mükerrer korumalı)
+    - cron: '35 6 * * *'
     - cron: '2 7 * * *'
-    # Öğlen 15:02 TSİ (UTC 12:02) - Her gün Günün Banko Kuponu
+    # Öğlen ~15:00 TSİ - Her gün Günün Banko Kuponu
+    - cron: '40 11 * * *'
     - cron: '2 12 * * *'
-    # Hafta İçi 23:59 TSİ (UTC 20:59) - Maç Sonuçları
+    # Hafta İçi ~23:59 TSİ - Günün Biten Maç Sonuçları
+    - cron: '35 20 * * 1-5'
     - cron: '59 20 * * 1-5'
-    # Hafta Sonu 22:30 TSİ (UTC 19:30) - Maç Sonuçları
+    # Hafta Sonu ~22:30 TSİ - Günün Biten Maç Sonuçları
+    - cron: '10 19 * * 0,6'
     - cron: '30 19 * * 0,6'
   workflow_dispatch:
     inputs:
@@ -40,7 +44,7 @@ jobs:
         run: |
           sudo apt-get update -y
           sudo apt-get install -y ffmpeg fonts-dejavu-core
-          pip install --quiet instagrapi pillow edge-tts gTTS
+          pip install --quiet instagrapi pillow edge-tts gTTS requests
 
       - name: Instagram Oturum ve Kimlik Bilgilerini Hazırla
         env:
@@ -61,14 +65,18 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             MODE="${{ github.event.inputs.mode }}"
           else
-            HOUR_UTC=$((10#$(date -u +%H)))
-            if [ "$HOUR_UTC" -lt 10 ]; then
-              MODE="odds"
-            elif [ "$HOUR_UTC" -lt 16 ]; then
-              MODE="coupon"
-            else
-              MODE="results"
-            fi
+            SCHED="${{ github.event.schedule }}"
+            case "$SCHED" in
+              "35 6 * * *"|"2 7 * * *")
+                MODE="odds"
+                ;;
+              "40 11 * * *"|"2 12 * * *")
+                MODE="coupon"
+                ;;
+              *)
+                MODE="results"
+                ;;
+            esac
           fi
 
           python motion_reels.py --mode "$MODE" --category spor
