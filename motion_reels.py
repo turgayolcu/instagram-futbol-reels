@@ -101,15 +101,44 @@ FONTS = {
 
 def expand_betting_terms_for_speech(text: str) -> str:
     """
-    Bahis kısaltmalarını Türkçe spikerin doğru okuyacağı tam ifadelerine çevirir:
-    - MS 1 -> Maç Sonu 1 (asla 'Milattan Sonra' diye okumaz)
-    - MS 2 -> Maç Sonu 2
-    - MS X / MS 0 -> Maç Sonu Beraberlik
-    - KG VAR -> Karşılıklı Gol Var
-    - KG YOK -> Karşılıklı Gol Yok
-    - 2.5 ÜST -> 2 Buçuk Üst
-    - İY -> İlk Yarı
+    Bahis kısaltmalarını, yabancı takım/oyuncu isimlerini, saatleri ve özel karakterleri
+    %100 doğal İstanbul Türkçesi diksiyonuyla okunacak fonetik biçime çevirir.
     """
+    # 1) Yabancı aksan/diyakritik harfleri Türkçe fonetik karşılıklarına dönüştür
+    # (Örn: Dušan Vlahović -> Duşan Vlahoviç; aksi halde TTS Slav/Rus fonemine kayar)
+    char_map = str.maketrans({
+        "š": "ş", "Š": "Ş",
+        "ć": "ç", "Ć": "Ç",
+        "č": "ç", "Č": "Ç",
+        "ž": "j", "Ž": "J",
+        "đ": "c", "Đ": "C",
+        "ł": "l", "Ł": "L",
+        "ń": "n", "Ń": "N",
+        "ñ": "ny", "Ñ": "Ny",
+        "á": "a", "à": "a", "â": "a", "ä": "a", "ã": "a",
+        "Á": "A", "À": "A", "Â": "A",
+        "é": "e", "è": "e", "ê": "e", "ë": "e",
+        "É": "E", "È": "E", "Ê": "E",
+        "í": "i", "ì": "i", "î": "i", "ï": "i",
+        "ó": "o", "ò": "o", "ô": "o",
+        "ú": "u", "ù": "u", "û": "u",
+        "ø": "ö", "Ø": "Ö",
+    })
+    out = text.translate(char_map)
+
+    # 2) Saat ifadelerini doğal Türkçe okunuşa çevir (Örn: 22:00'de -> saat 22'de)
+    time_replacements = [
+        (r"\b(\d{1,2}):00'de\b", r"\1 sıfır sıfırda"),
+        (r"\b(\d{1,2}):00'da\b", r"\1 sıfır sıfırda"),
+        (r"\b(\d{1,2}):00\b", r"\1 sıfır sıfır"),
+        (r"\b(\d{1,2}):(\d{2})'de\b", r"\1 \2'de"),
+        (r"\b(\d{1,2}):(\d{2})'da\b", r"\1 \2'da"),
+        (r"\b(\d{1,2}):(\d{2})\b", r"\1 \2"),
+    ]
+    for pattern, repl in time_replacements:
+        out = re.sub(pattern, repl, out, flags=re.IGNORECASE)
+
+    # 3) Bahis terimleri ve yabancı kulüp/oyuncu isimlerinin Türkçe spiker fonetiği
     replacements = [
         (r"\bHMS\s*1\b", "Handikaplı Maç Sonu 1"),
         (r"\bHMS\s*2\b", "Handikaplı Maç Sonu 2"),
@@ -135,11 +164,84 @@ def expand_betting_terms_for_speech(text: str) -> str:
         (r"\bÇŞ\s*X-2\b", "Çifte Şans Sıfır 2"),
         (r"\bÇŞ\s*1-2\b", "Çifte Şans 1 2"),
         (r"\bTG\b", "Toplam Gol"),
-        (r"\bUnion SG\b", "Union Saint Gilloise"),
-        (r"\bB\.\s*Leverkusen\b", "Bayer Leverkusen"),
+        (r"\bUEFA\b", "Uefa"),
+        (r"\bCrystal Palace'ı\b", "Kristal Palası"),
+        (r"\bCrystal Palace'a\b", "Kristal Palasa"),
+        (r"\bCrystal Palace\b", "Kristal Palas"),
+        (r"\bC\.\s*Palace\b", "Kristal Palas"),
+        (r"\bVlahovic\b", "Vlahoviç"),
+        (r"\bDusan\b", "Duşan"),
+        (r"\bNewcastle\s*Utd\b", "Nıvkasıl Yunaytıd"),
+        (r"\bNewcastle\b", "Nıvkasıl"),
+        (r"\bTottenham\b", "Totınım"),
+        (r"\bAthletic\s*Bilbao\b", "Atletik Bilbao"),
+        (r"\bSporting\s*CP\b", "Sporting Lizbon"),
+        (r"\bBodo/Glimt\b", "Bodo Glimt"),
+        (r"\bUnion\s*SG\b", "Union Sen Jiluaz"),
+        (r"\bB\.\s*Leverkusen\b", "Bayer Leverkuzen"),
+        (r"\bLeverkusen\b", "Leverkuzen"),
+        (r"\bChelsea\b", "Çelsi"),
+        (r"\bArsenal\b", "Arsınıl"),
+        (r"\bManchester\s*City\b", "Mançestır Siti"),
+        (r"\bManchester\s*United\b", "Mançestır Yunaytıd"),
+        (r"\bManchester\s*Utd\b", "Mançestır Yunaytıd"),
+        (r"\bLiverpool\b", "Liverpul"),
+        (r"\bJuventus\b", "Yuventus"),
+        (r"\bAtletico\s*Madrid\b", "Atletiko Madrid"),
+        (r"\bBarcelona\b", "Barselona"),
+        (r"\bReal\s*Sociedad\b", "Real Sosyedad"),
+        (r"\bVillarreal\b", "Viyareal"),
+        (r"\bSevilla\b", "Seviya"),
+        (r"\bBologna\b", "Bolonya"),
+        (r"\bLazio\b", "Latsiyo"),
+        (r"\bMarseille\b", "Marsilya"),
+        (r"\bLille\b", "Lil"),
+        (r"\bLyon\b", "Liyon"),
+        (r"\bNice\b", "Nis"),
+        (r"\bMonaco\b", "Monako"),
+        (r"\bBenfica\b", "Benfika"),
+        (r"\bAjax\b", "Ayaks"),
+        (r"\bFeyenoord\b", "Feyenord"),
+        (r"\bCeltic\b", "Seltik"),
+        (r"\bRangers\b", "Reyncırs"),
+        (r"\bClub\s*Brugge\b", "Kulüp Brüj"),
+        (r"\bShakhtar\b", "Şahtar"),
+        (r"\bHoffenheim\b", "Hofenhaym"),
+        (r"\bEintracht\s*Frankfurt\b", "Ayntraht Frankfurt"),
+        (r"\bStuttgart\b", "Ştutgart"),
+        (r"\bLeipzig\b", "Laypzig"),
+        (r"\bFreiburg\b", "Frayburg"),
+        (r"\bWolfsburg\b", "Volfsburg"),
+        (r"\bQarabag\b", "Karabağ"),
+        (r"\bKarabağ\b", "Karabağ"),
+        (r"\bAZ\s*Alkmaar\b", "Az Alkmar"),
+        (r"\bTwente\b", "Tivente"),
+        (r"\bMidtjylland\b", "Midtyiland"),
+        (r"\bSlavia\s*Prag\b", "Slavya Prag"),
+        (r"\bSparta\s*Prag\b", "Sparta Prag"),
+        (r"\bViktoria\s*Plzen\b", "Viktorya Pilzen"),
+        (r"\bAnderlecht\b", "Anderleht"),
+        (r"\bOlympiakos\b", "Olimpiyakos"),
+        (r"\bPanathinaikos\b", "Panatinaykos"),
+        (r"\bPAOK\b", "Paok"),
+        (r"\bFCSB\b", "Bükreş"),
+        (r"\bPSV\s*Eindhoven\b", "Pe Se Ve Ayndhovın"),
+        (r"\bPSV\b", "Pe Se Ve"),
+        (r"\bPSG\b", "Paris Sen Jermen"),
+        (r"\bTrossard\b", "Trosard"),
+        (r"\bOsimhen\b", "Osimen"),
+        (r"\bIcardi\b", "İkardi"),
+        (r"\bDzeko\b", "Ceko"),
+        (r"\bTadic\b", "Tadiç"),
+        (r"\bSzymanski\b", "Şimanski"),
+        (r"\bEn-Nesyri\b", "En Nesiri"),
+        (r"\bMourinho\b", "Morinyo"),
+        (r"\bImmobile\b", "İmmobile"),
+        (r"\bGedson\b", "Jedson"),
+        (r"\bNwakaeme\b", "Nvakaeme"),
+        (r"\bVisca\b", "Vişça"),
         (r"\bFK\b", "Futbol Kulübü"),
     ]
-    out = text
     for pattern, repl in replacements:
         out = re.sub(pattern, repl, out, flags=re.IGNORECASE)
     # Ondalık oranları (örn. 84.14 -> 84 nokta 14) doğal okut
@@ -198,14 +300,17 @@ async def generate_tts(text: str, out_mp3: Path, voice: str = "en-US-BrianMultil
     """
     Sabit ana spiker sesi olarak 'DerdKv-RRID' Reels paylaşımındaki erkek sesi
     (en-US-BrianMultilingualNeural) kullanılır. Kadın sesi (gTTS) kesinlikle kullanılmaz.
+    Yabancı isimler, Slav/aksanlı harfler (š, ć vb.) ve saatler TTS'e gönderilmeden önce
+    otomatik olarak Türkçe fonetik okunuşa çevrilir; böylece spiker asla Rus/İngiliz şivesine kaymaz.
     """
+    clean_text = expand_betting_terms_for_speech(text)
     primary_voice = "en-US-BrianMultilingualNeural"
-    candidate_voices = [primary_voice, "en-US-AndrewMultilingualNeural"]
+    candidate_voices = [primary_voice, "tr-TR-AhmetNeural"]
     last_err: Optional[Exception] = None
     for v in candidate_voices:
         for attempt in range(4):
             try:
-                communicate = edge_tts.Communicate(text, voice=v)
+                communicate = edge_tts.Communicate(clean_text, voice=v)
                 await communicate.save(str(out_mp3))
                 if out_mp3.exists() and out_mp3.stat().st_size > 1000:
                     return
@@ -763,6 +868,7 @@ def main() -> None:
         "-i", str(mixed_audio),
         "-c:v", "libx264", "-preset", "fast", "-crf", "20", "-pix_fmt", "yuv420p",
         "-c:a", "copy", "-shortest",
+        "-movflags", "+faststart",
         str(video_path),
     ]
 
