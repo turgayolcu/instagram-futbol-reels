@@ -183,11 +183,27 @@ def expand_betting_terms_for_speech(text: str) -> str:
         (r"\bChelsea\b", "Çelsi"),
         (r"\bArsenal\b", "Arsınıl"),
         (r"\bManchester\s*City\b", "Mançestır Siti"),
+        (r"\bMan\.\s*City\b", "Mançestır Siti"),
+        (r"\bMan\s*City\b", "Mançestır Siti"),
         (r"\bManchester\s*United\b", "Mançestır Yunaytıd"),
         (r"\bManchester\s*Utd\b", "Mançestır Yunaytıd"),
+        (r"\bMan\.\s*Utd\b", "Mançestır Yunaytıd"),
+        (r"\bMan\.\s*United\b", "Mançestır Yunaytıd"),
         (r"\bLiverpool\b", "Liverpul"),
         (r"\bJuventus\b", "Yuventus"),
         (r"\bAtletico\s*Madrid\b", "Atletiko Madrid"),
+        (r"\bAtl\.\s*Madrid\b", "Atletiko Madrid"),
+        (r"\bB\.\s*Münih\b", "Bayern Münih"),
+        (r"\bB\.\s*Dortmund\b", "Borusya Dortmund"),
+        (r"\bM\.\s*Gladbach\b", "Mönhengladbah"),
+        (r"\bE\.\s*Frankfurt\b", "Ayntraht Frankfurt"),
+        (r"\bNott\.\s*Forest\b", "Notingım Forest"),
+        (r"\bNottingham\s*Forest\b", "Notingım Forest"),
+        (r"\bAston\s*Villa\b", "Aston Vila"),
+        (r"\bCelta\s*Vigo\b", "Selta Vigo"),
+        (r"\bR\.\s*Sociedad\b", "Real Sosyedad"),
+        (r"\bR\.\s*Betis\b", "Real Betis"),
+        (r"\bG\.\s*Rangers\b", "Glazgov Reyncırs"),
         (r"\bBarcelona\b", "Barselona"),
         (r"\bReal\s*Sociedad\b", "Real Sosyedad"),
         (r"\bVillarreal\b", "Viyareal"),
@@ -296,27 +312,24 @@ def build_main_voiceover_text(payload: Dict[str, Any], mode: str) -> str:
         return expand_betting_terms_for_speech(raw)
 
 
-async def generate_tts(text: str, out_mp3: Path, voice: str = "en-US-BrianMultilingualNeural") -> None:
+async def generate_tts(text: str, out_mp3: Path, voice: str = "tr-TR-AhmetNeural") -> None:
     """
-    Sabit ana spiker sesi olarak 'DerdKv-RRID' Reels paylaşımındaki erkek sesi
-    (en-US-BrianMultilingualNeural) kullanılır. Kadın sesi (gTTS) kesinlikle kullanılmaz.
-    Yabancı isimler, Slav/aksanlı harfler (š, ć vb.) ve saatler TTS'e gönderilmeden önce
-    otomatik olarak Türkçe fonetik okunuşa çevrilir; böylece spiker asla Rus/İngiliz şivesine kaymaz.
+    %100 Ana Dili Türkçe Erkek Spiker Sesi (tr-TR-AhmetNeural) kullanılır.
+    Çok dilli İngilizce sesler (en-US-*Multilingual) maç skorlarında ve yabancı takım adlarında
+    İngilizce/Rusça fonetiğe kaydığı için kesinlikle kullanılmaz; sadece saf tr-TR sesi kullanılır.
     """
     clean_text = expand_betting_terms_for_speech(text)
-    primary_voice = "en-US-BrianMultilingualNeural"
-    candidate_voices = [primary_voice, "tr-TR-AhmetNeural"]
+    strict_tr_voice = "tr-TR-AhmetNeural"
     last_err: Optional[Exception] = None
-    for v in candidate_voices:
-        for attempt in range(4):
-            try:
-                communicate = edge_tts.Communicate(clean_text, voice=v)
-                await communicate.save(str(out_mp3))
-                if out_mp3.exists() and out_mp3.stat().st_size > 1000:
-                    return
-            except Exception as e:
-                last_err = e
-            await asyncio.sleep(0.5)
+    for attempt in range(5):
+        try:
+            communicate = edge_tts.Communicate(clean_text, voice=strict_tr_voice)
+            await communicate.save(str(out_mp3))
+            if out_mp3.exists() and out_mp3.stat().st_size > 1000:
+                return
+        except Exception as e:
+            last_err = e
+        await asyncio.sleep(0.5)
     if last_err is not None:
         raise last_err
 
