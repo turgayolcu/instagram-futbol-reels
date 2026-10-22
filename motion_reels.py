@@ -99,13 +99,64 @@ FONTS = {
 }
 
 
+def _int_to_turkish_words(n: int) -> str:
+    ones = ["", "bir", "iki", "üç", "dört", "beş", "altı", "yedi", "sekiz", "dokuz"]
+    tens = ["", "on", "yirmi", "otuz", "kırk", "elli", "altmış", "yetmiş", "seksen", "doksan"]
+    if n == 0:
+        return "sıfır"
+    if n < 0:
+        return "eksi " + _int_to_turkish_words(-n)
+    parts: List[str] = []
+    if n >= 1000:
+        b = n // 1000
+        parts.append("bin" if b == 1 else _int_to_turkish_words(b) + " bin")
+        n %= 1000
+    if n >= 100:
+        y = n // 100
+        parts.append("yüz" if y == 1 else ones[y] + " yüz")
+        n %= 100
+    if n >= 10:
+        parts.append(tens[n // 10])
+        n %= 10
+    if n > 0:
+        parts.append(ones[n])
+    return " ".join(parts)
+
+
+def _convert_all_numbers_to_turkish(text: str) -> str:
+    """
+    Metindeki tüm ondalık oranları (örn. 2.01 -> iki nokta sıfır bir) ve tam sayıları
+    (örn. 2 -> iki, 0 -> sıfır) %100 Türkçe kelimelere çevirir.
+    Böylece çok dilli TTS motoru rakamları asla İngilizce ('zero', 'two', 'one') okumaz!
+    """
+    def repl_decimal(m: re.Match) -> str:
+        left_s, right_s = m.group(1), m.group(2)
+        left_w = _int_to_turkish_words(int(left_s))
+        if len(right_s) == 2 and right_s.startswith("0"):
+            right_w = "sıfır " + _int_to_turkish_words(int(right_s[1]))
+        else:
+            right_w = _int_to_turkish_words(int(right_s))
+        return f"{left_w} nokta {right_w}"
+
+    out = re.sub(r"(\d+)[.,](\d+)", repl_decimal, text)
+
+    def repl_int(m: re.Match) -> str:
+        val_s = m.group(0)
+        if len(val_s) == 6:
+            # 6 haneli bayi kodu (304168 -> üç yüz dört bin yüz altmış sekiz)
+            return _int_to_turkish_words(int(val_s))
+        return _int_to_turkish_words(int(val_s))
+
+    out = re.sub(r"\b\d+\b", repl_int, out)
+    return out
+
+
 def expand_betting_terms_for_speech(text: str) -> str:
     """
-    Bahis kısaltmalarını, yabancı takım/oyuncu isimlerini, saatleri ve özel karakterleri
-    %100 doğal İstanbul Türkçesi diksiyonuyla okunacak fonetik biçime çevirir.
+    Bahis kısaltmalarını, yabancı takım/oyuncu isimlerini, saatleri, özel karakterleri
+    ve TÜM RAKAMLARI %100 Türkçe kelimelere çevirir ("türkçe yazıldı türkçe okunacak").
     """
     # 1) Yabancı aksan/diyakritik harfleri Türkçe fonetik karşılıklarına dönüştür
-    # (Örn: Dušan Vlahović -> Duşan Vlahoviç; aksi halde TTS Slav/Rus fonemine kayar)
     char_map = str.maketrans({
         "š": "ş", "Š": "Ş",
         "ć": "ç", "Ć": "Ç",
@@ -126,43 +177,43 @@ def expand_betting_terms_for_speech(text: str) -> str:
     })
     out = text.translate(char_map)
 
-    # 2) Saat ifadelerini doğal Türkçe okunuşa çevir (Örn: 22:00'de -> saat 22'de)
+    # 2) Saat ifadelerini doğal Türkçe okunuşa çevir (Örn: 22:00'de -> 22'de)
     time_replacements = [
-        (r"\b(\d{1,2}):00'de\b", r"\1 sıfır sıfırda"),
-        (r"\b(\d{1,2}):00'da\b", r"\1 sıfır sıfırda"),
-        (r"\b(\d{1,2}):00\b", r"\1 sıfır sıfır"),
-        (r"\b(\d{1,2}):(\d{2})'de\b", r"\1 \2'de"),
-        (r"\b(\d{1,2}):(\d{2})'da\b", r"\1 \2'da"),
-        (r"\b(\d{1,2}):(\d{2})\b", r"\1 \2"),
+        (r"\b(\d{1,2}):00'de\b", lambda m: f"{_int_to_turkish_words(int(m.group(1)))} sıfır sıfırda"),
+        (r"\b(\d{1,2}):00'da\b", lambda m: f"{_int_to_turkish_words(int(m.group(1)))} sıfır sıfırda"),
+        (r"\b(\d{1,2}):00\b", lambda m: f"{_int_to_turkish_words(int(m.group(1)))} sıfır sıfır"),
+        (r"\b(\d{1,2}):(\d{2})'de\b", lambda m: f"{_int_to_turkish_words(int(m.group(1)))} {_int_to_turkish_words(int(m.group(2)))}'de"),
+        (r"\b(\d{1,2}):(\d{2})'da\b", lambda m: f"{_int_to_turkish_words(int(m.group(1)))} {_int_to_turkish_words(int(m.group(2)))}'da"),
+        (r"\b(\d{1,2}):(\d{2})\b", lambda m: f"{_int_to_turkish_words(int(m.group(1)))} {_int_to_turkish_words(int(m.group(2)))}"),
     ]
-    for pattern, repl in time_replacements:
-        out = re.sub(pattern, repl, out, flags=re.IGNORECASE)
+    for pattern, repl_fn in time_replacements:
+        out = re.sub(pattern, repl_fn, out, flags=re.IGNORECASE)
 
     # 3) Bahis terimleri ve yabancı kulüp/oyuncu isimlerinin Türkçe spiker fonetiği
     replacements = [
-        (r"\bHMS\s*1\b", "Handikaplı Maç Sonu 1"),
-        (r"\bHMS\s*2\b", "Handikaplı Maç Sonu 2"),
+        (r"\bHMS\s*1\b", "Handikaplı Maç Sonu bir"),
+        (r"\bHMS\s*2\b", "Handikaplı Maç Sonu iki"),
         (r"\bHMS\s*[X0]\b", "Handikaplı Maç Sonu Beraberlik"),
-        (r"\bMS\s*1\b", "Maç Sonu 1"),
-        (r"\bMS\s*2\b", "Maç Sonu 2"),
+        (r"\bMS\s*1\b", "Maç Sonu bir"),
+        (r"\bMS\s*2\b", "Maç Sonu iki"),
         (r"\bMS\s*[X0]\b", "Maç Sonu Beraberlik"),
         (r"\bMS\b", "Maç Sonu"),
-        (r"\bİY\s*1\b", "İlk Yarı 1"),
-        (r"\bİY\s*2\b", "İlk Yarı 2"),
+        (r"\bİY\s*1\b", "İlk Yarı bir"),
+        (r"\bİY\s*2\b", "İlk Yarı iki"),
         (r"\bİY\s*[X0]\b", "İlk Yarı Beraberlik"),
         (r"\bİY\b", "İlk Yarı"),
         (r"\bKG\s*VAR\b", "Karşılıklı Gol Var"),
         (r"\bKG\s*YOK\b", "Karşılıklı Gol Yok"),
         (r"\bKG\b", "Karşılıklı Gol"),
-        (r"\b1[.,]5\s*ÜST\b", "1 Buçuk Üst"),
-        (r"\b1[.,]5\s*ALT\b", "1 Buçuk Alt"),
-        (r"\b2[.,]5\s*ÜST\b", "2 Buçuk Üst"),
-        (r"\b2[.,]5\s*ALT\b", "2 Buçuk Alt"),
-        (r"\b3[.,]5\s*ÜST\b", "3 Buçuk Üst"),
-        (r"\b3[.,]5\s*ALT\b", "3 Buçuk Alt"),
-        (r"\bÇŞ\s*1-X\b", "Çifte Şans 1 Sıfır"),
-        (r"\bÇŞ\s*X-2\b", "Çifte Şans Sıfır 2"),
-        (r"\bÇŞ\s*1-2\b", "Çifte Şans 1 2"),
+        (r"\b1[.,]5\s*ÜST\b", "bir buçuk üst"),
+        (r"\b1[.,]5\s*ALT\b", "bir buçuk alt"),
+        (r"\b2[.,]5\s*ÜST\b", "iki buçuk üst"),
+        (r"\b2[.,]5\s*ALT\b", "iki buçuk alt"),
+        (r"\b3[.,]5\s*ÜST\b", "üç buçuk üst"),
+        (r"\b3[.,]5\s*ALT\b", "üç buçuk alt"),
+        (r"\bÇŞ\s*1-X\b", "Çifte Şans bir sıfır"),
+        (r"\bÇŞ\s*X-2\b", "Çifte Şans sıfır iki"),
+        (r"\bÇŞ\s*1-2\b", "Çifte Şans bir iki"),
         (r"\bTG\b", "Toplam Gol"),
         (r"\bUEFA\b", "Uefa"),
         (r"\bCrystal Palace'ı\b", "Kristal Palası"),
@@ -177,7 +228,7 @@ def expand_betting_terms_for_speech(text: str) -> str:
         (r"\bAthletic\s*Bilbao\b", "Atletik Bilbao"),
         (r"\bSporting\s*CP\b", "Sporting Lizbon"),
         (r"\bBodo/Glimt\b", "Bodo Glimt"),
-        (r"\bUnion\s*SG\b", "Union Sen Jiluaz"),
+        (r"\bUnion\s*SG\b", "Unyon Sen Jiluaz"),
         (r"\bB\.\s*Leverkusen\b", "Bayer Leverkuzen"),
         (r"\bLeverkusen\b", "Leverkuzen"),
         (r"\bChelsea\b", "Çelsi"),
@@ -244,6 +295,8 @@ def expand_betting_terms_for_speech(text: str) -> str:
         (r"\bPSV\s*Eindhoven\b", "Pe Se Ve Ayndhovın"),
         (r"\bPSV\b", "Pe Se Ve"),
         (r"\bPSG\b", "Paris Sen Jermen"),
+        (r"\bKairat\b", "Kayrat"),
+        (r"\bHearts\b", "Harts"),
         (r"\bTrossard\b", "Trosard"),
         (r"\bOsimhen\b", "Osimen"),
         (r"\bIcardi\b", "İkardi"),
@@ -257,11 +310,13 @@ def expand_betting_terms_for_speech(text: str) -> str:
         (r"\bNwakaeme\b", "Nvakaeme"),
         (r"\bVisca\b", "Vişça"),
         (r"\bFK\b", "Futbol Kulübü"),
+        (r"\bSK\b", "Spor Kulübü"),
     ]
     for pattern, repl in replacements:
         out = re.sub(pattern, repl, out, flags=re.IGNORECASE)
-    # Ondalık oranları (örn. 84.14 -> 84 nokta 14) doğal okut
-    out = re.sub(r"(\d+)\.(\d+)", r"\1 nokta \2", out)
+
+    # 4) Kalan tüm ondalık ve tam sayıları %100 Türkçe kelimelere çevir (Örn: 2 -> iki, 0 -> sıfır, 2.01 -> iki nokta sıfır bir)
+    out = _convert_all_numbers_to_turkish(out)
     return out
 
 
@@ -312,24 +367,26 @@ def build_main_voiceover_text(payload: Dict[str, Any], mode: str) -> str:
         return expand_betting_terms_for_speech(raw)
 
 
-async def generate_tts(text: str, out_mp3: Path, voice: str = "tr-TR-AhmetNeural") -> None:
+async def generate_tts(text: str, out_mp3: Path, voice: str = "en-US-BrianMultilingualNeural") -> None:
     """
-    %100 Ana Dili Türkçe Erkek Spiker Sesi (tr-TR-AhmetNeural) kullanılır.
-    Çok dilli İngilizce sesler (en-US-*Multilingual) maç skorlarında ve yabancı takım adlarında
-    İngilizce/Rusça fonetiğe kaydığı için kesinlikle kullanılmaz; sadece saf tr-TR sesi kullanılır.
+    Sabit erkek spiker sesi (en-US-BrianMultilingualNeural) kullanılır.
+    Metindeki tüm rakamlar ('2' -> 'iki', '0' -> 'sıfır', '2.01' -> 'iki nokta sıfır bir') ve yabancı
+    takım/oyuncu isimleri TTS motoruna gönderilmeden önce %100 Türkçe kelimelere dönüştürüldüğü için
+    spiker asla İngilizce ('zero', 'two') veya Rusça fonetiğe geçiş yapamaz; tamamen Türkçe okur.
     """
     clean_text = expand_betting_terms_for_speech(text)
-    strict_tr_voice = "tr-TR-AhmetNeural"
+    candidate_voices = ["en-US-BrianMultilingualNeural", "en-US-AndrewMultilingualNeural"]
     last_err: Optional[Exception] = None
-    for attempt in range(5):
-        try:
-            communicate = edge_tts.Communicate(clean_text, voice=strict_tr_voice)
-            await communicate.save(str(out_mp3))
-            if out_mp3.exists() and out_mp3.stat().st_size > 1000:
-                return
-        except Exception as e:
-            last_err = e
-        await asyncio.sleep(0.5)
+    for v in candidate_voices:
+        for attempt in range(4):
+            try:
+                communicate = edge_tts.Communicate(clean_text, voice=v)
+                await communicate.save(str(out_mp3))
+                if out_mp3.exists() and out_mp3.stat().st_size > 1000:
+                    return
+            except Exception as e:
+                last_err = e
+            await asyncio.sleep(0.5)
     if last_err is not None:
         raise last_err
 
