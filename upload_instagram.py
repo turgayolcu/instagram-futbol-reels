@@ -8,8 +8,16 @@ Her postun açıklamasına:
 import datetime
 import json
 import os
+import shutil
+import subprocess
 import sys
 from pathlib import Path
+
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
 
 MANDATORY_DEALER_BLOCK = (
     "İddaa: 304168\n"
@@ -78,6 +86,20 @@ def upload_reel(video_path: Path, caption: str) -> bool:
 
     final_caption = format_caption(caption, base_dir)
 
+    # faststart (moov atomu dosya başında) teyidi
+    try:
+        fixed_path = video_path.with_name(f"{video_path.stem}_fs.mp4")
+        res = subprocess.run([
+            "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+            "-i", str(video_path),
+            "-c", "copy", "-movflags", "+faststart",
+            str(fixed_path)
+        ], capture_output=True)
+        if res.returncode == 0 and fixed_path.exists() and fixed_path.stat().st_size > 1000:
+            shutil.move(str(fixed_path), str(video_path))
+    except Exception as e:
+        print(f"[UYARI] faststart optimizasyonu atlandı: {e}")
+
     from instagrapi import Client
 
     session_file = base_dir / "ig_session.json"
@@ -102,18 +124,20 @@ def upload_reel(video_path: Path, caption: str) -> bool:
         cl.dump_settings(str(session_file))
         print(f"[OK] Oturum kaydedildi: {session_file}")
 
-    # Otomasyon videolarında (reels_odds_latest, reels_coupon_latest, reels_results_latest)
-    # son 3 saat içinde aynı konsept zaten paylaşıldıysa mükerrer paylaşımı önle
-    if video_path.name in ("reels_odds_latest.mp4", "reels_coupon_latest.mp4", "reels_results_latest.mp4"):
+    # Otomasyon videolarında son 2.5 saat içinde birebir aynı başlık zaten paylaşıldıysa mükerrer paylaşımı önle
+    if any(
+        video_path.name.startswith(prefix)
+        for prefix in ("reels_odds_latest", "reels_coupon_latest", "reels_results_latest", "reels_vs_manset_", "reels_last5_form_")
+    ):
         try:
-            recent_medias = cl.user_medias_v1(int(cl.user_id), amount=4)
+            recent_medias = cl.user_medias_v1(int(cl.user_id), amount=6)
             now_utc = datetime.datetime.now(datetime.timezone.utc)
             key_phrase = caption.split("!")[0].strip().lower()
             for m in recent_medias:
-                if m.taken_at and (now_utc - m.taken_at).total_seconds() < 3 * 3600:
+                if m.taken_at and (now_utc - m.taken_at).total_seconds() < 2.5 * 3600:
                     m_cap = (m.caption_text or "").lower()
                     if key_phrase and key_phrase in m_cap:
-                        print(f"[BİLGİ] '{key_phrase}' son 3 saat içinde zaten paylaşılmış (PK: {m.pk}). Mükerrer paylaşım atlandı.")
+                        print(f"[BİLGİ] '{key_phrase}' son 2.5 saat içinde zaten paylaşılmış (PK: {m.pk}). Mükerrer paylaşım atlandı.")
                         return True
         except Exception as e:
             print(f"[UYARI] Son paylaşım kontrolü yapılamadı, yüklemeye devam ediliyor: {e}")

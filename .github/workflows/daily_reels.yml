@@ -2,27 +2,32 @@ name: Instagram Gunluk Futbol Reels Otomasyonu
 
 on:
   schedule:
-    # Sabah ~10:00 TSİ - Her gün Günün Maçları & Oranlar (GitHub kuyruk gecikmesine karşı erken + yedek tetikleyici; mükerrer korumalı)
-    - cron: '35 6 * * *'
-    - cron: '2 7 * * *'
-    # Öğlen ~15:00 TSİ - Her gün Günün Banko Kuponu
-    - cron: '40 11 * * *'
-    - cron: '2 12 * * *'
-    # Hafta İçi ~23:59 TSİ - Günün Biten Maç Sonuçları
-    - cron: '35 20 * * 1-5'
-    - cron: '59 20 * * 1-5'
-    # Hafta Sonu ~22:30 TSİ - Günün Biten Maç Sonuçları
-    - cron: '10 19 * * 0,6'
-    - cron: '30 19 * * 0,6'
+    # 1) Saat 09:00 TSİ - VS Temalı Manşet Reels (Büyük Türk Takımları veya 3 Farklı Ligden 3 Avrupa Maçı, 15 dk arayla)
+    - cron: '45 5 * * *'
+    - cron: '2 6 * * *'
+    # 2) Saat 10:10 TSİ - Günün Maçları & İddaa Oranları
+    - cron: '55 6 * * *'
+    - cron: '10 7 * * *'
+    # 3) Saat 14:00 TSİ - Maçı Olan Büyük Türk Takımının Armasıyla Son 5 Maç Karnesi Manşet Reels
+    - cron: '45 10 * * *'
+    - cron: '0 11 * * *'
+    # 4) Saat 15:00 TSİ - Günün Banko Kuponu
+    - cron: '45 11 * * *'
+    - cron: '0 12 * * *'
+    # 5) Saat 23:59 TSİ - Günün Biten Maç Sonuçları
+    - cron: '42 20 * * *'
+    - cron: '59 20 * * *'
   workflow_dispatch:
     inputs:
       mode:
-        description: 'Paylaşım Konsepti (odds = Sabah Bülten, coupon = Öğlen Kupon, results = Akşam Sonuçlar)'
+        description: 'Paylaşım Konsepti (vs = 09:00 VS Manşet, odds = 10:10 Bülten, last5 = 14:00 Son 5 Maç, coupon = 15:00 Kupon, results = 23:59 Sonuçlar)'
         required: true
-        default: 'odds'
+        default: 'vs'
         type: choice
         options:
+          - vs
           - odds
+          - last5
           - coupon
           - results
 
@@ -44,7 +49,7 @@ jobs:
         run: |
           sudo apt-get update -y
           sudo apt-get install -y ffmpeg fonts-dejavu-core
-          pip install --quiet instagrapi pillow edge-tts gTTS requests
+          pip install --quiet instagrapi pillow edge-tts gTTS requests numpy
 
       - name: Instagram Oturum ve Kimlik Bilgilerini Hazırla
         env:
@@ -57,20 +62,23 @@ jobs:
             printf '%s' "$IG_SESSION_JSON" > ig_session.json
           fi
 
-      - name: Günün Güncel Maçlarını, Oranlarını ve Sonuçlarını Çek
-        run: python cloud_fetcher.py
-
-      - name: Saate Göre Motion Graphics Reels Üret ve Paylaş
+      - name: Saate Göre Reels Üret ve Paylaş
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             MODE="${{ github.event.inputs.mode }}"
           else
             SCHED="${{ github.event.schedule }}"
             case "$SCHED" in
-              "35 6 * * *"|"2 7 * * *")
+              "45 5 * * *"|"2 6 * * *")
+                MODE="vs"
+                ;;
+              "55 6 * * *"|"10 7 * * *")
                 MODE="odds"
                 ;;
-              "40 11 * * *"|"2 12 * * *")
+              "45 10 * * *"|"0 11 * * *")
+                MODE="last5"
+                ;;
+              "45 11 * * *"|"0 12 * * *")
                 MODE="coupon"
                 ;;
               *)
@@ -79,14 +87,21 @@ jobs:
             esac
           fi
 
-          python motion_reels.py --mode "$MODE" --category spor
+          echo "Aktif Otomasyon Modu: $MODE"
 
-          if [ "$MODE" = "odds" ]; then
-            CAPTION="Günün Maçları & Oranlar! #iddaa #futbol #süperlig #avrupaligi #şampiyonlarligi"
-          elif [ "$MODE" = "coupon" ]; then
-            CAPTION="Günün Banko Kuponu Hazır! #iddaa #bankokupon #futbol #tahmin"
+          if [ "$MODE" = "vs" ]; then
+            python auto_manset_reels.py --mode vs --upload --interval 900
+          elif [ "$MODE" = "last5" ]; then
+            python auto_manset_reels.py --mode last5 --upload --interval 900
           else
-            CAPTION="Günün Biten Maç Sonuçları! #iddaa #maçsonuçları #futbol #süperlig"
+            python cloud_fetcher.py
+            python motion_reels.py --mode "$MODE" --category spor
+            if [ "$MODE" = "odds" ]; then
+              CAPTION="Günün Maçları & Oranlar! #iddaa #futbol #süperlig #avrupaligi #şampiyonlarligi"
+            elif [ "$MODE" = "coupon" ]; then
+              CAPTION="Günün Banko Kuponu Hazır! #iddaa #bankokupon #futbol #tahmin"
+            else
+              CAPTION="Günün Biten Maç Sonuçları! #iddaa #maçsonuçları #futbol #süperlig"
+            fi
+            python upload_instagram.py "output/reels_${MODE}_latest.mp4" "$CAPTION"
           fi
-
-          python upload_instagram.py "output/reels_${MODE}_latest.mp4" "$CAPTION"
