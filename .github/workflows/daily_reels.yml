@@ -1,22 +1,7 @@
-name: Instagram Gunluk Futbol Reels Otomasyonu
+name: Instagram Gunluk Futbol Reels Otomasyonu (DURDURULDU - Sadece Manuel)
 
 on:
-  schedule:
-    # 1) Saat 09:00 TSİ - VS Temalı Manşet Reels (Büyük Türk Takımları veya 3 Farklı Ligden 3 Avrupa Maçı, 15 dk arayla)
-    - cron: '45 5 * * *'
-    - cron: '2 6 * * *'
-    # 2) Saat 10:10 TSİ - Günün Maçları & İddaa Oranları
-    - cron: '55 6 * * *'
-    - cron: '10 7 * * *'
-    # 3) Saat 14:00 TSİ - Maçı Olan Büyük Türk Takımının Armasıyla Son 5 Maç Karnesi Manşet Reels
-    - cron: '45 10 * * *'
-    - cron: '0 11 * * *'
-    # 4) Saat 15:00 TSİ - Günün Banko Kuponu
-    - cron: '45 11 * * *'
-    - cron: '0 12 * * *'
-    # 5) Saat 23:59 TSİ - Günün Biten Maç Sonuçları
-    - cron: '42 20 * * *'
-    - cron: '59 20 * * *'
+  # Otomatik zamanlayıcı (schedule / cron) tamamen kaldırıldı. Otomasyon durdurulmuştur.
   workflow_dispatch:
     inputs:
       mode:
