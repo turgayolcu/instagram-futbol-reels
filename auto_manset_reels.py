@@ -843,9 +843,20 @@ def render_poster_to_reels_mp4(poster_path: Path, vo_script: str, out_mp4: Path)
     return out_mp4
 
 
-def run_vs_mode(target_date: datetime.date, do_upload: bool, interval_sec: int = 900) -> List[Path]:
+def _publish_video(video_path: Path, caption: str, platform: str) -> None:
+    if platform == "youtube":
+        from upload_youtube import upload_short
+        upload_short(video_path, caption)
+    else:
+        upload_reel(video_path, caption)
+
+
+def run_vs_mode(target_date: datetime.date, do_upload: bool, interval_sec: int = 900, platform: str = "youtube") -> List[Path]:
     matches = parse_today_football_matches(target_date)
     selected = select_morning_vs_matches(matches)
+    if platform == "youtube":
+        # Günlük 6 YouTube Shorts kotasına (2 VS + 1 Oran + 1 Son5 + 1 Kupon + 1 Sonuç = 6 Shorts) tam uyum
+        selected = selected[:2]
     if not selected:
         print("[UYARI] Bugün için uygun VS maçı bulunamadı.")
         return []
@@ -885,14 +896,14 @@ def run_vs_mode(target_date: datetime.date, do_upload: bool, interval_sec: int =
 
         if do_upload:
             if idx > 0 and interval_sec > 0:
-                print(f"[BEKLEME] Sıradaki VS Reels paylaşımı için {interval_sec // 60} dakika ({interval_sec} sn) bekleniyor...")
+                print(f"[BEKLEME] Sıradaki VS paylaşımı için {interval_sec // 60} dakika ({interval_sec} sn) bekleniyor...")
                 time.sleep(interval_sec)
-            upload_reel(video_path, caption)
+            _publish_video(video_path, caption, platform)
 
     return generated_videos
 
 
-def run_last5_mode(target_date: datetime.date, do_upload: bool, interval_sec: int = 900) -> List[Path]:
+def run_last5_mode(target_date: datetime.date, do_upload: bool, interval_sec: int = 900, platform: str = "youtube") -> List[Path]:
     matches = parse_today_football_matches(target_date)
     if not matches:
         print("[UYARI] Bugün için maç bulunamadı.")
@@ -912,6 +923,9 @@ def run_last5_mode(target_date: datetime.date, do_upload: bool, interval_sec: in
     if not target_entries:
         top_m = matches[0]
         target_entries.append((top_m["home_id"], top_m["home"], top_m))
+
+    if platform == "youtube":
+        target_entries = target_entries[:1]
 
     generated_videos: List[Path] = []
     for idx, (tid, tname, m) in enumerate(target_entries):
@@ -959,9 +973,9 @@ def run_last5_mode(target_date: datetime.date, do_upload: bool, interval_sec: in
 
         if do_upload:
             if idx > 0 and interval_sec > 0:
-                print(f"[BEKLEME] Sıradaki Son 5 Maç Reels paylaşımı için {interval_sec // 60} dakika ({interval_sec} sn) bekleniyor...")
+                print(f"[BEKLEME] Sıradaki Son 5 Maç paylaşımı için {interval_sec // 60} dakika ({interval_sec} sn) bekleniyor...")
                 time.sleep(interval_sec)
-            upload_reel(video_path, caption)
+            _publish_video(video_path, caption, platform)
 
     return generated_videos
 
@@ -970,7 +984,8 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode", choices=["vs", "last5"], required=True)
     parser.add_argument("--date", default="", help="GG/AA/YYYY formatında tarih (boşsa bugün TSİ)")
-    parser.add_argument("--upload", action="store_true", help="Üretilen videoları Instagram'a yükle")
+    parser.add_argument("--upload", action="store_true", help="Üretilen videoları yükle")
+    parser.add_argument("--platform", choices=["youtube", "instagram"], default="youtube", help="Yükleme platformu (varsayılan: youtube)")
     parser.add_argument("--interval", type=int, default=900, help="Çoklu paylaşımlar arası bekleme süresi (saniye, varsayılan 900=15dk)")
     args = parser.parse_args()
 
@@ -981,9 +996,9 @@ def main() -> None:
         target_date = datetime.datetime.now(tz_tr).date()
 
     if args.mode == "vs":
-        run_vs_mode(target_date, do_upload=args.upload, interval_sec=args.interval)
+        run_vs_mode(target_date, do_upload=args.upload, interval_sec=args.interval, platform=args.platform)
     else:
-        run_last5_mode(target_date, do_upload=args.upload, interval_sec=args.interval)
+        run_last5_mode(target_date, do_upload=args.upload, interval_sec=args.interval, platform=args.platform)
 
 
 if __name__ == "__main__":
