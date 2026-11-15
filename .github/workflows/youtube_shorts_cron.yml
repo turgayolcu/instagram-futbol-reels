@@ -1,18 +1,18 @@
-name: YouTube Spor Gundemi Shorts Otomasyonu
+name: YouTube Shorts Spor Otomasyonu
 
 on:
   schedule:
-    # 1) Saat 08:00 TSİ (05:00 UTC) - Günün Spor Manşetleri
+    # 1) 08:00 TSİ (05:00 UTC) - Günün Spor Manşetleri (Detaylı Bülten)
     - cron: '55 4 * * *'
-    # 2) Saat 10:45 TSİ (07:45 UTC) - Futbolcu Biyografisi & Hikayesi
+    # 2) 10:45 TSİ (07:45 UTC) - Futbolcu Biyografisi & Efsane Hikayeler
     - cron: '40 7 * * *'
-    # 3) Saat 13:30 TSİ (10:30 UTC) - Son Dakika Futbol & Transfer Gelişmesi
+    # 3) 13:30 TSİ (10:30 UTC) - Son Dakika Futbol & Transfer Gelişmesi
     - cron: '25 10 * * *'
-    # 4) Saat 16:15 TSİ (13:15 UTC) - Futbol Genel Kültürü ("Biliyor Muydunuz?")
+    # 4) 16:15 TSİ (13:15 UTC) - Futbol Genel Kültürü ("Biliyor Muydunuz?")
     - cron: '10 13 * * *'
-    # 5) Saat 19:00 TSİ (16:00 UTC) - Maç Önü İstatistikleri & Form Analizi
-    - cron: '55 15 * * *'
-    # 6) Saat 22:00 TSİ (19:00 UTC) - Günün Maç Sonu Analizi & Skor Özeti
+    # 5) 19:30 TSİ (16:30 UTC) - Maç Önü İstatistikleri & Form Analizi
+    - cron: '25 16 * * *'
+    # 6) 22:00 TSİ (19:00 UTC) - Günün Maç Sonu Analizi & Skor Özeti
     - cron: '55 18 * * *'
   workflow_dispatch:
     inputs:
@@ -66,28 +66,21 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             MODE="${{ github.event.inputs.mode }}"
           else
-            SCHED="${{ github.event.schedule }}"
-            case "$SCHED" in
-              "55 4 * * *")
-                MODE="headlines"
-                ;;
-              "40 7 * * *")
-                MODE="biography"
-                ;;
-              "25 10 * * *")
-                MODE="breaking"
-                ;;
-              "10 13 * * *")
-                MODE="trivia"
-                ;;
-              "55 15 * * *")
-                MODE="pre_match"
-                ;;
-              *)
-                MODE="post_match"
-                ;;
-            esac
+            HOUR=$(date +%H)
+            if [ "$HOUR" -lt 10 ]; then
+              MODE="headlines"
+            elif [ "$HOUR" -lt 12 ]; then
+              MODE="biography"
+            elif [ "$HOUR" -lt 15 ]; then
+              MODE="breaking"
+            elif [ "$HOUR" -lt 18 ]; then
+              MODE="trivia"
+            elif [ "$HOUR" -lt 21 ]; then
+              MODE="pre_match"
+            else
+              MODE="post_match"
+            fi
           fi
 
-          echo "Aktif Spor Shorts Kategorisi: $MODE"
+          echo "Aktif Spor Shorts Kategorisi: $MODE (Saat TSİ: $(date '+%H:%M'))"
           python youtube_sports_shorts.py --mode "$MODE" --upload

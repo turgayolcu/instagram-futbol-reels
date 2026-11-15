@@ -14,6 +14,7 @@
 import argparse
 import asyncio
 import datetime
+import html
 import io
 import math
 import os
@@ -25,7 +26,7 @@ import textwrap
 import urllib.parse
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import requests
 from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont
@@ -432,51 +433,243 @@ def fetch_wiki_image(wiki_title: str, lang: str = "tr") -> Optional[Image.Image]
     return None
 
 
-def fetch_google_football_rss(query: str = '"Süper Lig" OR "Milli Takım" OR "Şampiyonlar Ligi" OR futbol when:1d') -> List[Dict[str, str]]:
+NEWS_BANNED_KW = [
+    "iddaa", "bahis", "kupon", "misli", "nesine", "bilyoner", "tuttur", "oley.com",
+    "voleybol", "basketbol", "euroleague", "nba", "tenis", "formula 1", "grand prix", "hentbol",
+    "medicana", "madeş", "opet", "beko", "mct", "daikin", "eczacıbaşı", "vakıfbank",
+    "anadolu efes", "sultanlar", "efeler", "filede", "parkede", "potada", "set ",
+    "pistons", "lakers", "celtics", "pelicans", "miami heat", "warriors", "rockets",
+    "kadın futbol", "arsavev", "fomget", "alg spor", "u19", "u17",
+]
+
+FOOTBALL_POSITIVE_KW = [
+    "futbol", "süper lig", "şampiyonlar ligi", "avrupa ligi", "konferans ligi", "uluslar ligi",
+    "milli takım", "ay-yıldızlı", "ayyıldızlı", "galatasaray", "fenerbahçe", "beşiktaş", "trabzonspor",
+    "başakşehir", "samsunspor", "göztepe", "eyüpspor", "konyaspor", "antalyaspor", "alanyaspor",
+    "real madrid", "barcelona", "liverpool", "arsenal", "manchester", "juventus", "inter", "milan",
+    "bayern", "dortmund", "psg", "portekiz", "ispanya", "fransa", "ingiltere", "almanya", "italya",
+    "brezilya", "arjantin", "hollanda", "belçika", "hırvatistan", "danimarka",
+    "transfer", "bonservis", "teknik direktör", "forvet", "golcü", "kaleci", "penaltı",
+    "deplasman", "stadyum", "stadı", "hakem", "kırmızı kart", "ofsayt", "gol ", "golü", "golleri",
+]
+
+
+def _clean_news_text(raw: str) -> str:
+    txt = html.unescape(re.sub(r"<[^>]+>", " ", raw or ""))
+    txt = re.sub(r"\s+", " ", txt).strip()
+    junk_patterns = [
+        r"Devamı için tıklayınız\.?",
+        r"Haberin devamı için tıklayınız\.?",
+        r"İşte detaylar\.{0,3}",
+        r"İşte o flaş gerçek\.{0,3}",
+        r"İşte tüm senaryolar\.{0,3}",
+        r"CANLI İZLE!?",
+        r"Şifresiz mi\??",
+        r"\|\s*Son dakika[^.]*$",
+    ]
+    for pat in junk_patterns:
+        txt = re.sub(pat, "", txt, flags=re.IGNORECASE).strip()
+    return re.sub(r"\s+", " ", txt).strip(" -|•:")
+
+
+def _clean_headline_title(raw_title: str) -> str:
+    t = _clean_news_text(raw_title)
+    # "X maçı ne zaman, saat kaçta, hangi kanalda?" gibi SEO kuyruklarını temizle
+    t = re.sub(r"\s*[-–|]?\s*(ne zaman|saat kaçta|hangi kanalda).*$", "", t, flags=re.IGNORECASE).strip()
+    t = re.sub(r"^(FENERBAHÇE|GALATASARAY|BEŞİKTAŞ|TRABZONSPOR)\s+HABERİ\s*[:|]\s*", "", t, flags=re.IGNORECASE).strip()
+    return t
+
+
+def _prepare_spoken_news_sentence(text: str) -> str:
+    s = text.strip()
+    s = re.sub(r"\(p\)", " penaltıdan ", s, flags=re.IGNORECASE)
+    s = re.sub(r"\(2\)", " iki golle ", s)
+    s = re.sub(r"\(3\)", " üç golle ", s)
+    s = re.sub(r"\bTSİ\b", "Türkiye saatiyle", s)
+    s = re.sub(r"(\d+)\+(\d+)\.\s*dakika", r"\1 artı \2. dakika", s)
+    s = re.sub(r"!{2,}", "!", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+
+def _scrape_article_details_and_photo(url: str, rss_desc: str, rss_img_url: str) -> Tuple[List[str], Optional[Image.Image]]:
+    body_paragraphs: List[str] = []
+    og_img_url = rss_img_url
+
+    if url:
+        try:
+            r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=7)
+            if r.status_code == 200:
+                html_txt = r.text
+                og_m = re.search(r'property=["\']og:image["\'][^>]*content=["\']([^"\']+)["\']', html_txt, re.I)
+                if not og_m:
+                    og_m = re.search(r'content=["\']([^"\']+)["\'][^>]*property=["\']og:image["\']', html_txt, re.I)
+                if og_m:
+                    cand = html.unescape(og_m.group(1).strip())
+                    if "im.haberturk.com" in cand and "/jpg/1200x628" in cand:
+                        cand = cand.replace("/jpg/1200x628", "/jpg/640x640")
+                    if cand.startswith("http") and "logo" not in cand.lower():
+                        og_img_url = cand
+
+                raw_ps = re.findall(r"<p[^>]*>(.*?)</p>", html_txt, flags=re.S | re.I)
+                skip_p_kw = [
+                    "çerez", "cookie", "gizlilik", "copyright", "tüm hakları", "abone ol",
+                    "bülten", "reklam", "whatsapp", "instagram", "uygulamamızı", "kvkk",
+                    "misli", "iddaa", "nesine", "bilyoner", "bahis", "canlı anlatım",
+                ]
+                for rp in raw_ps:
+                    cp = _clean_news_text(rp)
+                    if len(cp) < 50 or len(cp) > 380:
+                        continue
+                    if any(sk in cp.lower() for sk in skip_p_kw):
+                        continue
+                    # Tam cümle kontrolü (sonu noktalama ile bitmeli)
+                    if cp[-1] not in ".!?\"'”":
+                        continue
+                    # Yabancı takım 11 listelerini ("Fransa: X, Y, Z...") seslendirmede atla; Türkiye 11'ini doğal cümleye çevir
+                    if cp.count(",") >= 6 and ":" in cp[:28]:
+                        team_lbl, roster = cp.split(":", 1)
+                        if "türkiye" in team_lbl.lower() or "milli" in team_lbl.lower():
+                            cp = f"Ay-yıldızlı ekibimizin muhtemel on birinde {roster.strip().rstrip('.')} yer alıyor."
+                        else:
+                            continue
+                    if any(cp[:38].lower() in existing.lower() or existing[:38].lower() in cp.lower() for existing in body_paragraphs):
+                        continue
+                    body_paragraphs.append(cp)
+                    if len(body_paragraphs) >= 4:
+                        break
+        except Exception:
+            pass
+
+    if not body_paragraphs and rss_desc and len(rss_desc) >= 55 and rss_desc[-1] in ".!?":
+        body_paragraphs.append(rss_desc)
+
+    photo_img: Optional[Image.Image] = None
+    if og_img_url and og_img_url.startswith("http"):
+        try:
+            ir = requests.get(og_img_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=7)
+            if ir.status_code == 200 and len(ir.content) > 8000:
+                im = Image.open(io.BytesIO(ir.content)).convert("RGB")
+                if im.size[0] >= 360 and im.size[1] >= 200:
+                    photo_img = im
+        except Exception:
+            photo_img = None
+
+    return body_paragraphs, photo_img
+
+
+def fetch_rich_football_news(limit: int = 5, prefer_breaking: bool = False) -> List[Dict[str, Any]]:
     """
-    Google News Türkiye üzerinden en güncel futbol haber başlıklarını çeker (bahis/basketbol/voleybol kelimelerini filtreler).
+    Habertürk Spor, A Spor Futbol, TRT Haber Spor, Sabah Spor ve Cumhuriyet Spor RSS + makale gövdesinden
+    GERÇEK haber metni, skor/oyuncu/puan detayları ve basın fotoğrafı içeren zengin futbol haberlerini çeker.
+    Sadece başlık olan veya detayı boş olan haberleri kesinlikle eler.
     """
-    encoded_q = urllib.parse.quote(query)
-    url = f"https://news.google.com/rss/search?q={encoded_q}&hl=tr&gl=TR&ceid=TR:tr"
-    try:
-        r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
-        root = ET.fromstring(r.content)
-        items = []
-        banned_kw = [
-            "iddaa", "bahis", "kupon", "oran", "voleybol", "basketbol", "euroleague", "nba", "tenis",
-            "medicana", "madeş", "opet", "beko", "mct", "daikin", "eczacıbaşı", "vakıfbank",
-            "anadolu efes", "sultanlar", "efeler", "filede", "parkede", "potada", "set ",
-            "kadın futbol", "arsavev", "fomget", "alg spor", "u19", "u17",
-        ]
-        seen_prefixes = set()
-        for item in root.findall(".//item"):
-            raw_title = (item.findtext("title") or "").strip()
-            pub_date = (item.findtext("pubDate") or "").strip()
-            if not raw_title:
+    feeds = [
+        ("Habertürk Spor", "https://www.haberturk.com/rss/spor.xml", False),
+        ("A Spor", "https://www.aspor.com.tr/rss/futbol.xml", True),
+        ("TRT Spor", "https://www.trthaber.com/spor_articles.rss", False),
+        ("Sabah Spor", "https://www.sabah.com.tr/rss/spor.xml", False),
+        ("Cumhuriyet Spor", "https://www.cumhuriyet.com.tr/rss/spor.xml", False),
+    ]
+    if prefer_breaking:
+        feeds = [feeds[1], feeds[0], feeds[3], feeds[2], feeds[4]]
+
+    candidates: List[Dict[str, str]] = []
+    seen_titles = set()
+
+    for source_name, feed_url, is_pure_football in feeds:
+        try:
+            r = requests.get(feed_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=7)
+            if r.status_code != 200 or b"<item" not in r.content:
                 continue
-            # Kaynak adını ayır ("Başlık - Fanatik" -> title="Başlık", source="Fanatik")
-            if " - " in raw_title:
-                headline, source = raw_title.rsplit(" - ", 1)
-            else:
-                headline, source = raw_title, "Spor Gündemi"
-            headline = headline.strip()
-            if any(b in headline.lower() for b in banned_kw):
-                continue
-            if len(headline) < 18:
-                continue
-            prefix = headline.lower()[:28]
-            if prefix in seen_prefixes:
-                continue
-            seen_prefixes.add(prefix)
-            items.append({
-                "headline": headline,
-                "source": source.strip(),
-                "pub_date": pub_date,
-            })
-        return items
-    except Exception as e:
-        print(f"[UYARI] RSS çekilemedi: {e}")
-        return []
+            root = ET.fromstring(r.content)
+            for item in root.findall(".//item")[:14]:
+                raw_title = (item.findtext("title") or "").strip()
+                raw_desc = (item.findtext("description") or "").strip()
+                link = (item.findtext("link") or "").strip()
+                if not raw_title or not link:
+                    continue
+
+                img_m = re.search(r'<img[^>]+src=["\']([^"\']+)["\']', raw_desc, re.I)
+                rss_img = img_m.group(1).strip() if img_m else ""
+
+                headline = _clean_headline_title(raw_title)
+                clean_desc = _clean_news_text(raw_desc)
+                combined_low = f"{headline} {clean_desc}".lower()
+
+                if len(headline) < 16:
+                    continue
+                if any(b in combined_low for b in NEWS_BANNED_KW):
+                    continue
+                if not is_pure_football and not any(fk in combined_low for fk in FOOTBALL_POSITIVE_KW):
+                    continue
+
+                # Sadece "ne zaman saat kaçta" rehberi olan boş SEO haberlerini ele
+                if any(seo in raw_title.lower() for seo in ["neden yok?", "sakat mı?", "şifresiz mi"]):
+                    continue
+
+                norm_key = re.sub(r"[^a-zçğıöşü0-9]", "", headline.lower())[:26]
+                if norm_key in seen_titles:
+                    continue
+                seen_titles.add(norm_key)
+
+                candidates.append({
+                    "headline": headline,
+                    "rss_desc": clean_desc,
+                    "rss_img": rss_img,
+                    "link": link,
+                    "source": source_name,
+                })
+        except Exception:
+            continue
+
+    rich_items: List[Dict[str, Any]] = []
+    used_topics = set()
+
+    for cand in candidates:
+        # Aynı maç veya aynı konu hakkında iki ayrı haber seçilmesini önle
+        words = [w for w in re.findall(r"[a-zçğıöşüA-ZÇĞİÖŞÜ]{4,}", cand["headline"].lower()) if w not in ("milli", "takım", "maçı", "haberi", "sonra", "önce", "karşı", "üzerine")]
+        topic_overlap = sum(1 for w in words[:4] if w in used_topics)
+        if topic_overlap >= 2 and len(rich_items) >= 1:
+            continue
+
+        paras, photo = _scrape_article_details_and_photo(cand["link"], cand["rss_desc"], cand["rss_img"])
+        # Gerçek detay kontrolü: En az 75 karakterlik somut haber detayı şart!
+        detail_paras = [p for p in paras if len(p) >= 50 and p.lower()[:30] != cand["headline"].lower()[:30]]
+        if not detail_paras:
+            continue
+
+        # Konuşma metni için en doyurucu 2 paragrafı birleştir
+        spoken_parts: List[str] = []
+        char_len = 0
+        for p in detail_paras:
+            sp = _prepare_spoken_news_sentence(p)
+            if char_len + len(sp) <= 360 or not spoken_parts:
+                spoken_parts.append(sp)
+                char_len += len(sp)
+            if len(spoken_parts) >= 2 and char_len >= 190:
+                break
+
+        spoken_detail = " ".join(spoken_parts).strip()
+        spoken_detail = _trim_to_sentence(spoken_detail, 350)
+
+        if len(spoken_detail) < 65:
+            continue
+
+        for w in words[:4]:
+            used_topics.add(w)
+
+        rich_items.append({
+            "headline": cand["headline"],
+            "source": cand["source"],
+            "paragraphs": detail_paras[:3],
+            "spoken_detail": spoken_detail,
+            "photo": photo,
+        })
+        if len(rich_items) >= limit:
+            break
+
+    return rich_items
 
 
 def detect_subject_photo(text: str) -> Optional[Image.Image]:
@@ -635,81 +828,133 @@ def draw_wrapped_text(
     return cur_y
 
 
-def build_headlines_short() -> Tuple[Path, str, str]:
-    """1) Sabah 08:00 - Günün Spor Manşetleri"""
-    items = fetch_google_football_rss()
-    if len(items) < 3:
-        items = [
-            {"headline": "Süper Lig devlerinde kritik hafta mesaisi başladı", "source": "Spor Gündemi"},
-            {"headline": "Avrupa kupalarında temsilcilerimizin maç programı netleşti", "source": "Futbol Ekranı"},
-            {"headline": "A Milli Futbol Takımımızda aday kadro heyecanı yaşanıyor", "source": "Milli Gündem"},
-        ]
+def _trim_to_sentence(text: str, max_chars: int) -> str:
+    txt = text.strip()
+    if len(txt) <= max_chars:
+        return txt
+    cut = txt[:max_chars]
+    # Rakamdan sonraki sıra noktasını (4., 90+4., 1.) cümle sonu sanma!
+    ends = [m.end() for m in re.finditer(r"(?<!\d)[.!?](?=\s|$)", cut)]
+    if ends and ends[-1] >= int(max_chars * 0.45):
+        return cut[: ends[-1]].strip()
+    last_sp = cut.rfind(" ")
+    return (cut[:last_sp] if last_sp > 40 else cut).rstrip(" ,;:-") + "..."
 
-    lead = items[0]
-    sub1 = items[1]
-    sub2 = items[2]
 
-    photo = detect_subject_photo(lead["headline"]) or detect_subject_photo(sub1["headline"])
-    if photo is None:
-        photo = fetch_wiki_image("UEFA_Champions_League", lang="en")
-
-    img = build_broadcast_background(photo, accent=ACCENT_RED)
+def _render_detailed_story_poster(
+    story: Dict[str, Any],
+    masthead_title: str,
+    badge_text: str,
+    out_path: Path,
+    accent: Tuple[int, int, int] = ACCENT_RED,
+) -> Path:
+    photo = (
+        story.get("photo")
+        or detect_subject_photo(story["headline"])
+        or detect_subject_photo(story.get("spoken_detail", ""))
+        or fetch_wiki_image("UEFA_Champions_League", lang="en")
+    )
+    img = build_broadcast_background(photo, accent=accent)
     if photo is not None:
-        paste_hero_photo_card(img, photo, (48, 180, WIDTH - 48, 790), border_col=ACCENT_GOLD)
+        paste_hero_photo_card(img, photo, (48, 175, WIDTH - 48, 765), border_col=ACCENT_GOLD)
     draw = ImageDraw.Draw(img)
-    draw_top_masthead(draw, "GÜNÜN SPOR MANŞETLERİ", accent=ACCENT_RED)
+    draw_top_masthead(draw, masthead_title, accent=accent)
 
-    # Ana Manşet Kartı
-    draw.rounded_rectangle([48, 820, WIDTH - 48, 1185], radius=24, fill=CARD_NAVY, outline=ACCENT_GOLD, width=3)
-    draw.rounded_rectangle([74, 844, 330, 892], radius=10, fill=ACCENT_RED)
-    draw.text((92, 852), "GÜNÜN 1 NUMARASI", font=load_font(22, True), fill=TEXT_WHITE)
+    # Manşet Başlık Kartı (kompakt yükseklik)
+    draw.rounded_rectangle([48, 790, WIDTH - 48, 1068], radius=24, fill=CARD_NAVY, outline=ACCENT_GOLD, width=3)
+    f_badge = load_font(22, True)
+    btb = draw.textbbox((0, 0), badge_text, font=f_badge)
+    bw = btb[2] - btb[0] + 38
+    draw.rounded_rectangle([74, 812, 74 + bw, 858], radius=10, fill=accent)
+    draw.text((93, 821), badge_text, font=f_badge, fill=TEXT_WHITE)
+
+    hl_txt = _trim_to_sentence(tr_upper(story["headline"]), 96)
+    f_hl = load_impact_font(48 if len(hl_txt) <= 64 else 41)
     draw_wrapped_text(
         draw,
-        tr_upper(lead["headline"]),
+        hl_txt,
         76,
-        914,
+        878,
         WIDTH - 152,
-        load_impact_font(52),
+        f_hl,
         fill=ACCENT_GOLD,
-        line_spacing=10,
+        line_spacing=8,
     )
 
-    # Alt 2 Manşet Kartı
-    for idx, sub in enumerate([sub1, sub2]):
-        sy1 = 1215 + idx * 285
-        sy2 = sy1 + 260
-        draw.rounded_rectangle([48, sy1, WIDTH - 48, sy2], radius=22, fill=(12, 22, 42), outline=(45, 75, 120), width=2)
-        draw.rounded_rectangle([74, sy1 + 22, 265, sy1 + 66], radius=8, fill=(28, 52, 95))
-        draw.text((90, sy1 + 30), f"MANŞET #{idx + 2}", font=load_font(21, True), fill=ACCENT_CYAN)
-        draw_wrapped_text(
+    # Haberin Gerçek İçerik / Detay Kartı (geniş alan: 2 tam paragraf sığar)
+    draw.rounded_rectangle([48, 1092, WIDTH - 48, 1815], radius=24, fill=(11, 20, 38), outline=(56, 189, 248), width=2)
+    draw.rounded_rectangle([74, 1116, 360, 1162], radius=8, fill=(22, 48, 88))
+    draw.text((92, 1125), "HABERİN DETAYLARI", font=load_font(21, True), fill=ACCENT_CYAN)
+
+    paras = story.get("paragraphs") or [story.get("spoken_detail", "")]
+    cur_y = 1184
+    for p_idx, para in enumerate(paras[:2]):
+        clean_p = _trim_to_sentence(para, 290 if p_idx == 0 else 250)
+        if cur_y > 1715:
+            break
+        draw.ellipse([74, cur_y + 10, 90, cur_y + 26], fill=ACCENT_GOLD)
+        cur_y = draw_wrapped_text(
             draw,
-            sub["headline"],
-            76,
-            sy1 + 84,
-            WIDTH - 152,
-            load_font(33, True),
+            clean_p,
+            106,
+            cur_y,
+            WIDTH - 182,
+            load_font(28, True),
             fill=TEXT_WHITE,
             line_spacing=8,
         )
+        cur_y += 24
 
-    poster_path = ASSETS_DIR / "yt_headlines_poster.jpg"
-    img.save(poster_path, quality=95)
+    img.save(out_path, quality=95)
+    return out_path
 
-    vo = (
-        f"Günün öne çıkan spor manşetleriyle karşınızdayız! "
-        f"Günün ilk manşetinde: {lead['headline']}. "
-        f"Gündemin ikinci önemli gelişmesi: {sub1['headline']}. "
-        f"Ve üçüncü başlığımızda: {sub2['headline']}. "
-        f"Günün tüm sıcak gelişmeleri için takipte kalın!"
+
+def build_headlines_short() -> Tuple[List[Tuple[Path, str]], str]:
+    """1) Sabah 08:00 - Günün Spor Manşetleri (Her manşetin gerçek haber içeriği ve özel sahnesiyle)"""
+    stories = fetch_rich_football_news(limit=3, prefer_breaking=False)
+    if not stories:
+        stories = [
+            {
+                "headline": "A Milli Futbol Takımımız Uluslar Ligi'nde sahaya çıkıyor",
+                "source": "Spor Gündemi",
+                "paragraphs": [
+                    "Ay-yıldızlı ekibimiz UEFA Uluslar A Ligi mücadelesinde kritik deplasman sınavına hazırlanıyor.",
+                    "Teknik heyet son taktik antrenmanın ardından maç kadrosunu ve oyun planını şekillendirdi.",
+                ],
+                "spoken_detail": "Ay-yıldızlı ekibimiz UEFA Uluslar A Ligi mücadelesinde kritik deplasman sınavına çıkarken teknik heyet ilk on bir tercihini netleştirdi.",
+                "photo": None,
+            }
+        ]
+
+    # 3 haber detayıyla 58 saniyeye rahat sığması için 2 veya 3 haber seç (toplam ~700 karakter sınırı)
+    selected = stories[:2] if sum(len(s["spoken_detail"]) for s in stories[:3]) > 780 else stories[:3]
+    scenes: List[Tuple[Path, str]] = []
+    intros = [
+        "Günün spor bülteninde ilk haberimiz:",
+        "Gündemdeki ikinci önemli gelişme:",
+        "Ve bültenimizin son haberi:",
+    ]
+
+    for idx, st in enumerate(selected):
+        badge = f"GÜNÜN MANŞETİ {idx + 1}/{len(selected)}"
+        p_path = ASSETS_DIR / f"yt_headlines_scene_{idx + 1}.jpg"
+        _render_detailed_story_poster(st, "GÜNÜN SPOR BÜLTENİ", badge, p_path, accent=ACCENT_RED)
+        concise_detail = _trim_to_sentence(st["spoken_detail"], 340 if len(selected) == 2 else 245)
+        clean_hl = st["headline"].rstrip("!")
+        seg_vo = f"{intros[idx]} {clean_hl}! {concise_detail}"
+        scenes.append((p_path, seg_vo))
+
+    lead = selected[0]
+    clean_lead_hl = lead["headline"].rstrip("!")
+    bullet_block = "\n\n".join(
+        [f"🔹 {s['headline']}\n   ↳ {_trim_to_sentence(s['spoken_detail'], 220)}" for s in selected]
     )
     caption = (
-        f"📰 GÜNÜN SPOR MANŞETLERİ: {lead['headline']}! ⚽🔥\n\n"
-        f"🔹 {lead['headline']}\n"
-        f"🔹 {sub1['headline']}\n"
-        f"🔹 {sub2['headline']}\n\n"
-        f"💬 Gündemdeki gelişmeler hakkında ne düşünüyorsunuz? Yorumlarda buluşalım!"
+        f"📰 GÜNÜN SPOR BÜLTENİ: {clean_lead_hl}! ⚽🔥\n\n"
+        f"{bullet_block}\n\n"
+        f"💬 Günün gelişmeleri hakkında siz ne düşünüyorsunuz? Yorumlarda buluşalım!"
     )
-    return poster_path, vo, caption
+    return scenes, caption
 
 
 def build_biography_short(target_date: datetime.date) -> Tuple[Path, str, str]:
@@ -758,68 +1003,36 @@ def build_biography_short(target_date: datetime.date) -> Tuple[Path, str, str]:
     return poster_path, bio["vo"], caption
 
 
-def build_breaking_short() -> Tuple[Path, str, str]:
-    """3) 13:30 - Son Dakika Futbol & Transfer Gelişmesi"""
-    items = fetch_google_football_rss('transfer OR "son dakika" OR Galatasaray OR Fenerbahçe OR Beşiktaş OR "Süper Lig" when:12h')
-    if not items:
-        items = fetch_google_football_rss()
-    story = items[min(3, len(items) - 1)] if items else {
-        "headline": "Avrupa ve Süper Lig'de transfer gündemi hareketlendi!",
-        "source": "Futbol Ekranı",
-    }
-    extra = items[min(4, len(items) - 1)] if len(items) > 4 else None
+def build_breaking_short() -> Tuple[List[Tuple[Path, str]], str]:
+    """3) 13:30 - Son Dakika Futbol & Transfer Gelişmesi (Tam Detaylı Özel Haber Dosyası)"""
+    stories = fetch_rich_football_news(limit=4, prefer_breaking=True)
+    if not stories:
+        return build_headlines_short()
 
-    photo = detect_subject_photo(story["headline"]) or fetch_wiki_image("Association_football", lang="en")
-    img = build_broadcast_background(photo, accent=ACCENT_RED)
-    if photo is not None:
-        paste_hero_photo_card(img, photo, (48, 180, WIDTH - 48, 860), border_col=ACCENT_RED)
-    draw = ImageDraw.Draw(img)
-    draw_top_masthead(draw, "SON DAKİKA GELİŞMESİ", accent=ACCENT_RED)
+    # Sabah bülteninden farklı taze haber önceliği; yeterli detay varsa 2 sıcak gelişmeyi detaylarıyla aktar
+    picked = stories[:2] if len(stories) >= 2 else stories[:1]
+    scenes: List[Tuple[Path, str]] = []
+    for idx, st in enumerate(picked):
+        badge = f"SICAK GELİŞME #{idx + 1}"
+        p_path = ASSETS_DIR / f"yt_breaking_scene_{idx + 1}.jpg"
+        _render_detailed_story_poster(st, "SON DAKİKA FUTBOL", badge, p_path, accent=ACCENT_RED)
+        full_detail = " ".join([_prepare_spoken_news_sentence(p) for p in st.get("paragraphs", [])[:2]]).strip()
+        full_detail = _trim_to_sentence(full_detail or st["spoken_detail"], 320 if len(picked) == 1 else 250)
+        lead_phrase = "Futbol gündeminden sıcak gelişme!" if idx == 0 else "Gündemin bir diğer önemli gelişmesinde ise:"
+        clean_hl = st["headline"].rstrip("!")
+        seg_vo = f"{lead_phrase} {clean_hl}! {full_detail}"
+        if idx == len(picked) - 1:
+            seg_vo += " Siz bu gelişmeyi nasıl değerlendiriyorsunuz? Yorumlara yazın!"
+        scenes.append((p_path, seg_vo))
 
-    # Kırmızı SON DAKİKA Kuşağı
-    draw.rounded_rectangle([48, 890, WIDTH - 48, 1005], radius=18, fill=ACCENT_RED)
-    sd_txt = "SICAK GELİŞME  •  FUTBOL GÜNDEMİ"
-    f_sd = load_impact_font(54)
-    sdtb = draw.textbbox((0, 0), sd_txt, font=f_sd)
-    draw.text(((WIDTH - (sdtb[2] - sdtb[0])) // 2, 916), sd_txt, font=f_sd, fill=TEXT_WHITE)
-
-    # Ana Son Dakika Kartı
-    draw.rounded_rectangle([48, 1030, WIDTH - 48, 1500], radius=24, fill=CARD_NAVY, outline=ACCENT_GOLD, width=3)
-    draw_wrapped_text(
-        draw,
-        tr_upper(story["headline"]),
-        80,
-        1075,
-        WIDTH - 160,
-        load_impact_font(62),
-        fill=TEXT_WHITE,
-        line_spacing=14,
-        center=True,
-    )
-    src_txt = f"Kaynak: {story['source']}"
-    f_src = load_font(26, True)
-    stb = draw.textbbox((0, 0), src_txt, font=f_src)
-    draw.text(((WIDTH - (stb[2] - stb[0])) // 2, 1430), src_txt, font=f_src, fill=ACCENT_GOLD)
-
-    if extra and extra["headline"] != story["headline"]:
-        draw.rounded_rectangle([48, 1530, WIDTH - 48, 1795], radius=20, fill=(11, 20, 38), outline=(56, 189, 248), width=2)
-        draw.text((76, 1554), "GÜNDEMDEN DİĞER NOT:", font=load_font(24, True), fill=ACCENT_CYAN)
-        draw_wrapped_text(draw, extra["headline"], 76, 1600, WIDTH - 152, load_font(32, True), fill=TEXT_WHITE, line_spacing=8)
-
-    poster_path = ASSETS_DIR / "yt_breaking_poster.jpg"
-    img.save(poster_path, quality=95)
-
-    vo = (
-        f"Futbol gündeminden sıcak gelişme! {story['headline']}! "
-        + (f"Öte yandan gündemdeki bir diğer gelişmede ise {extra['headline']}. " if extra else "")
-        + "Siz bu gelişmeyi nasıl değerlendiriyorsunuz? Görüşlerinizi yorumlara bekliyoruz!"
-    )
+    main_st = picked[0]
+    details_txt = "\n\n".join([f"📌 {s['headline']}\n🔹 {_trim_to_sentence(s['spoken_detail'], 220)}" for s in picked])
     caption = (
-        f"🚨 SON DAKİKA: {story['headline']}! ⚽🔥\n\n"
-        f"📰 Futbol gündemindeki en sıcak gelişmeler anbean ekranınızda!\n\n"
+        f"🚨 SON DAKİKA: {main_st['headline']}! ⚽🔥\n\n"
+        f"{details_txt}\n\n"
         f"💬 Siz bu gelişme hakkında ne düşünüyorsunuz? Yorumlara yazın!"
     )
-    return poster_path, vo, caption
+    return scenes, caption
 
 
 def build_trivia_short(target_date: datetime.date) -> Tuple[Path, str, str]:
@@ -931,7 +1144,7 @@ def _fetch_mackolik_day_matches(target_date: datetime.date) -> List[Dict[str, An
     return out
 
 
-def build_pre_match_short(target_date: datetime.date) -> Tuple[Path, str, str]:
+def build_pre_match_short(target_date: datetime.date) -> Tuple[List[Tuple[Path, str]], str]:
     """5) 19:00 - Maç Önü İstatistikleri & Form Karşılaştırması (Sıfır İddaa/Oran!)"""
     matches = _fetch_mackolik_day_matches(target_date)
     upcoming = [m for m in matches if m["status"] in ("", "0", "Başlamadı")] or matches
@@ -1019,10 +1232,10 @@ def build_pre_match_short(target_date: datetime.date) -> Tuple[Path, str, str]:
         f"🔹 {m['away']} Son 5 Maç: {a_w} Galibiyet, {a_gf} Gol\n\n"
         f"💬 Sizce bu karşılaşma kaç kaç biter? Yorumlara tahmininizi yazın!"
     )
-    return poster_path, vo, caption
+    return [(poster_path, vo)], caption
 
 
-def build_post_match_short(target_date: datetime.date) -> Tuple[Path, str, str]:
+def build_post_match_short(target_date: datetime.date) -> Tuple[List[Tuple[Path, str]], str]:
     """6) 22:00 - Günün Maç Sonu Analizi & Skor Özeti"""
     matches = _fetch_mackolik_day_matches(target_date)
     finished = [m for m in matches if m["status"] in ("MS", "Uz.", "Pen.", "Bitti")]
@@ -1111,7 +1324,7 @@ def build_post_match_short(target_date: datetime.date) -> Tuple[Path, str, str]:
         + (f"\n📊 Günün Diğer Sonuçları:\n{other_lines}\n" if other_lines else "")
         + "\n💬 Karşılaşmanın performansını nasıl buldunuz? Yorumlara yazın!"
     )
-    return poster_path, vo, caption
+    return [(poster_path, vo)], caption
 
 
 def render_subscribe_outro_frame(frame: Image.Image, draw: ImageDraw.ImageDraw, elapsed: float, dur: float) -> None:
@@ -1233,6 +1446,140 @@ def render_sports_short_mp4(poster_path: Path, vo_script: str, out_mp4: Path) ->
     return out_mp4
 
 
+def render_multi_scene_short_mp4(scenes: List[Tuple[Path, str]], out_mp4: Path) -> Path:
+    """
+    Birden fazla haber sahnesini (her biri kendi basın fotoğrafı, detaylı bilgi kartı ve spiker sesiyle)
+    birebir saniye senkronlu olarak birleştirir, yumuşak geçiş ekler ve 'Abone Ol' kartıyla bitirir.
+    """
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    vo_sub_path = OUTPUT_DIR / "vo_subscribe_outro.mp3"
+    if not vo_sub_path.exists() or vo_sub_path.stat().st_size < 1000:
+        asyncio.run(generate_tts(SUBSCRIBE_VOICEOVER, vo_sub_path))
+    outro_dur = max(2.8, get_audio_duration(vo_sub_path) + 0.35)
+
+    seg_records: List[Tuple[Image.Image, Path, float]] = []
+    for idx, (p_path, seg_vo) in enumerate(scenes):
+        seg_mp3 = OUTPUT_DIR / f"vo_{out_mp4.stem}_seg_{idx}.mp3"
+        asyncio.run(generate_tts(seg_vo, seg_mp3))
+        dur = max(4.0, get_audio_duration(seg_mp3) + 0.35)
+        p_img = Image.open(p_path).convert("RGB").resize((WIDTH, HEIGHT), Image.Resampling.LANCZOS)
+        seg_records.append((p_img, seg_mp3, dur))
+
+    # 3 sahneli bülten 57.5 saniyeyi aşarsa ve 3 sahne varsa, süreyi hızlandırmadan önce kontrol et;
+    # ensure_shorts_duration hafif tempo ayarıyla <57.5 sn garantisi verir.
+    main_dur = sum(x[2] for x in seg_records)
+    total_dur = main_dur + outro_dur
+    total_frames = int(math.ceil(total_dur * FPS))
+
+    outro_bg = Image.new("RGB", (WIDTH, HEIGHT), BG_DARK_BOT)
+    outro_bg_draw = ImageDraw.Draw(outro_bg)
+    for y in range(HEIGHT):
+        ratio = y / HEIGHT
+        r = int(10 * (1 - ratio) + 4 * ratio)
+        g = int(18 * (1 - ratio) + 8 * ratio)
+        b = int(38 * (1 - ratio) + 18 * ratio)
+        outro_bg_draw.line([(0, y), (WIDTH, y)], fill=(r, g, b))
+
+    # Her sahnenin sesini kendi başlangıç milisaniyesine yerleştir
+    input_args: List[str] = []
+    filter_parts: List[str] = [
+        f"aevalsrc='0.11*sin(2*PI*65*t)*exp(-3.2*mod(t,0.5))+0.04*sin(2*PI*196*t)*exp(-5.5*mod(t,0.25))'"
+        f":s=44100:d={total_dur:.2f}[bgm]"
+    ]
+    mix_labels = ["[bgm]"]
+    elapsed_cursor = 0.0
+
+    for idx, (_, seg_mp3, seg_dur) in enumerate(seg_records):
+        input_args.extend(["-i", str(seg_mp3)])
+        in_idx = idx + 1
+        delay_ms = int(round(elapsed_cursor * 1000))
+        lbl = f"[vo{idx}]"
+        if delay_ms > 0:
+            filter_parts.append(f"[{in_idx}:a]aresample=44100,volume=1.95,adelay={delay_ms}|{delay_ms}{lbl}")
+        else:
+            filter_parts.append(f"[{in_idx}:a]aresample=44100,volume=1.95{lbl}")
+        mix_labels.append(lbl)
+        elapsed_cursor += seg_dur
+
+    input_args.extend(["-i", str(vo_sub_path)])
+    sub_in_idx = len(seg_records) + 1
+    sub_delay_ms = int(round(main_dur * 1000))
+    filter_parts.append(f"[{sub_in_idx}:a]aresample=44100,volume=1.95,adelay={sub_delay_ms}|{sub_delay_ms}[vosub]")
+    mix_labels.append("[vosub]")
+
+    filter_parts.append(
+        f"{''.join(mix_labels)}amix=inputs={len(mix_labels)}:duration=first:dropout_transition=0,"
+        f"alimiter=limit=0.95[aout]"
+    )
+    filter_complex = ";".join(filter_parts)
+
+    cmd = [
+        "ffmpeg", "-y",
+        "-f", "rawvideo", "-vcodec", "rawvideo",
+        "-s", f"{WIDTH}x{HEIGHT}", "-pix_fmt", "rgb24", "-r", str(FPS),
+        "-i", "-",
+        *input_args,
+        "-filter_complex", filter_complex,
+        "-map", "0:v:0", "-map", "[aout]",
+        "-c:v", "libx264", "-preset", "fast", "-crf", "20", "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart",
+        "-t", f"{total_dur:.2f}",
+        str(out_mp4),
+    ]
+
+    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+    assert proc.stdin is not None
+
+    # Sahne zaman aralıklarını hazırla
+    bounds: List[Tuple[float, float, Image.Image]] = []
+    cur_t = 0.0
+    for p_img, _, seg_dur in seg_records:
+        bounds.append((cur_t, cur_t + seg_dur, p_img))
+        cur_t += seg_dur
+
+    for f_idx in range(total_frames):
+        t = f_idx / FPS
+        if t < main_dur:
+            active_idx = len(bounds) - 1
+            for b_i, (st_t, en_t, _) in enumerate(bounds):
+                if st_t <= t < en_t:
+                    active_idx = b_i
+                    break
+            st_t, en_t, base_img = bounds[active_idx]
+            local_t = t - st_t
+            seg_len = max(0.2, en_t - st_t)
+
+            zoom = 1.0 + 0.026 * math.sin((local_t / seg_len) * math.pi)
+            zw, zh = int(WIDTH * zoom), int(HEIGHT * zoom)
+            resized = base_img.resize((zw, zh), Image.Resampling.BILINEAR)
+            ox, oy = (zw - WIDTH) // 2, (zh - HEIGHT) // 2
+            frame = resized.crop((ox, oy, ox + WIDTH, oy + HEIGHT))
+
+            # Sahne geçişinde 0.22 sn yumuşak crossfade
+            if active_idx > 0 and local_t < 0.22:
+                prev_img = bounds[active_idx - 1][2]
+                alpha = local_t / 0.22
+                frame = Image.blend(prev_img, frame, alpha)
+
+            draw = ImageDraw.Draw(frame)
+            bar_w = int((WIDTH - 96) * min(1.0, t / max(0.1, total_dur)))
+            if bar_w > 4:
+                draw.rounded_rectangle([48, HEIGHT - 84, 48 + bar_w, HEIGHT - 77], radius=3, fill=ACCENT_GOLD)
+        else:
+            frame = outro_bg.copy()
+            draw = ImageDraw.Draw(frame)
+            render_subscribe_outro_frame(frame, draw, t - main_dur, outro_dur)
+
+        proc.stdin.write(frame.tobytes())
+
+    proc.stdin.close()
+    stderr_bytes = proc.stderr.read() if proc.stderr else b""
+    proc.wait()
+    if proc.returncode != 0:
+        raise RuntimeError(f"FFmpeg hatası:\n{stderr_bytes.decode('utf-8', errors='ignore')}")
+    return out_mp4
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -1251,22 +1598,25 @@ def main() -> None:
         else datetime.datetime.now(tz_tr).date()
     )
 
+    scenes: List[Tuple[Path, str]]
     if args.mode == "headlines":
-        poster, vo, cap = build_headlines_short()
+        scenes, cap = build_headlines_short()
     elif args.mode == "biography":
-        poster, vo, cap = build_biography_short(target_date)
+        p, v, cap = build_biography_short(target_date)
+        scenes = [(p, v)]
     elif args.mode == "breaking":
-        poster, vo, cap = build_breaking_short()
+        scenes, cap = build_breaking_short()
     elif args.mode == "trivia":
-        poster, vo, cap = build_trivia_short(target_date)
+        p, v, cap = build_trivia_short(target_date)
+        scenes = [(p, v)]
     elif args.mode == "pre_match":
-        poster, vo, cap = build_pre_match_short(target_date)
+        scenes, cap = build_pre_match_short(target_date)
     else:
-        poster, vo, cap = build_post_match_short(target_date)
+        scenes, cap = build_post_match_short(target_date)
 
     out_video = OUTPUT_DIR / f"yt_short_{args.mode}.mp4"
-    print(f"[1/2] '{args.mode}' kategorisinde Spor Shorts videosu üretiliyor...")
-    render_sports_short_mp4(poster, vo, out_video)
+    print(f"[1/2] '{args.mode}' kategorisinde ({len(scenes)} sahneli) Spor Shorts videosu üretiliyor...")
+    render_multi_scene_short_mp4(scenes, out_video)
     print(f"[OK] Video hazır: {out_video}")
 
     if args.upload:

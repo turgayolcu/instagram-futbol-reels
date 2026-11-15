@@ -147,9 +147,9 @@ def is_duplicate_recent_short(yt, yt_title: str) -> bool:
                 continue
             pub_dt = datetime.datetime.fromisoformat(pub_str.replace("Z", "+00:00"))
             age_sec = (now_utc - pub_dt).total_seconds()
-            if age_sec < 75 * 60:
+            if age_sec < 45 * 60:
                 vid_id = snip.get("resourceId", {}).get("videoId", "")
-                print(f"[BİLGİ] Son 75 dk içinde zaten bir Shorts yayınlanmış (ID: {vid_id}). Kota koruması devrede.")
+                print(f"[BİLGİ] Son 45 dk içinde zaten bir Shorts yayınlanmış (ID: {vid_id}). Kota koruması devrede.")
                 return True
             if target_prefix and target_prefix in existing_title and age_sec < 6 * 3600:
                 vid_id = snip.get("resourceId", {}).get("videoId", "")
