@@ -125,8 +125,11 @@ def load_youtube_credentials(base_dir: Path):
 
 def is_duplicate_recent_short(yt, yt_title: str) -> bool:
     """
-    Son 90 dakika içinde birebir aynı başlık yüklendiyse mükerrer yüklemeyi önler (sadece 2 birim okuma harcar).
+    Son 75 dakika içinde kanala zaten bir Shorts yüklendiyse (veya aynı başlık son 6 saatte yüklendiyse)
+    mükerrer yüklemeyi ve gereksiz API kotası harcamasını önler.
     """
+    if os.environ.get("FORCE_UPLOAD") == "1":
+        return False
     try:
         ch_resp = yt.channels().list(part="contentDetails", mine=True).execute()
         items = ch_resp.get("items", [])
@@ -135,17 +138,23 @@ def is_duplicate_recent_short(yt, yt_title: str) -> bool:
         uploads_pl = items[0]["contentDetails"]["relatedPlaylists"]["uploads"]
         pl_resp = yt.playlistItems().list(part="snippet", playlistId=uploads_pl, maxResults=5).execute()
         now_utc = datetime.datetime.now(datetime.timezone.utc)
-        target_prefix = yt_title.replace("#Shorts", "").strip().lower()[:30]
+        target_prefix = yt_title.replace("#Shorts", "").strip().lower()[:28]
         for item in pl_resp.get("items", []):
             snip = item.get("snippet", {})
             pub_str = snip.get("publishedAt", "")
             existing_title = snip.get("title", "").lower()
-            if pub_str and target_prefix and target_prefix in existing_title:
-                pub_dt = datetime.datetime.fromisoformat(pub_str.replace("Z", "+00:00"))
-                if (now_utc - pub_dt).total_seconds() < 90 * 60:
-                    vid_id = snip.get("resourceId", {}).get("videoId", "")
-                    print(f"[BİLGİ] '{yt_title}' son 90 dk içinde zaten yüklenmiş (ID: {vid_id}). Atlandı.")
-                    return True
+            if not pub_str:
+                continue
+            pub_dt = datetime.datetime.fromisoformat(pub_str.replace("Z", "+00:00"))
+            age_sec = (now_utc - pub_dt).total_seconds()
+            if age_sec < 75 * 60:
+                vid_id = snip.get("resourceId", {}).get("videoId", "")
+                print(f"[BİLGİ] Son 75 dk içinde zaten bir Shorts yayınlanmış (ID: {vid_id}). Kota koruması devrede.")
+                return True
+            if target_prefix and target_prefix in existing_title and age_sec < 6 * 3600:
+                vid_id = snip.get("resourceId", {}).get("videoId", "")
+                print(f"[BİLGİ] '{yt_title}' son 6 saat içinde zaten yüklenmiş (ID: {vid_id}). Atlandı.")
+                return True
     except Exception as e:
         print(f"[UYARI] Son yükleme kontrolü atlandı: {e}")
     return False

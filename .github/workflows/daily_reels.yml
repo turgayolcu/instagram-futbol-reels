@@ -2,24 +2,18 @@ name: YouTube Spor Gundemi Shorts Otomasyonu
 
 on:
   schedule:
-    # 1) Saat 08:00 TSİ - Günün Spor Manşetleri
-    - cron: '48 4 * * *'
-    - cron: '2 5 * * *'
-    # 2) Saat 10:45 TSİ - Futbolcu Biyografisi & Hikayesi
-    - cron: '35 7 * * *'
-    - cron: '48 7 * * *'
-    # 3) Saat 13:30 TSİ - Son Dakika Futbol & Transfer Gelişmesi
-    - cron: '20 10 * * *'
-    - cron: '33 10 * * *'
-    # 4) Saat 16:15 TSİ - Futbol Genel Kültürü ("Biliyor Muydunuz?")
-    - cron: '5 13 * * *'
-    - cron: '18 13 * * *'
-    # 5) Saat 19:00 TSİ - Maç Önü İstatistikleri & Form Analizi
-    - cron: '48 15 * * *'
-    - cron: '2 16 * * *'
-    # 6) Saat 22:00 TSİ - Günün Maç Sonu Analizi & Skor Özeti
-    - cron: '48 18 * * *'
-    - cron: '2 19 * * *'
+    # 1) Saat 08:00 TSİ (05:00 UTC) - Günün Spor Manşetleri
+    - cron: '55 4 * * *'
+    # 2) Saat 10:45 TSİ (07:45 UTC) - Futbolcu Biyografisi & Hikayesi
+    - cron: '40 7 * * *'
+    # 3) Saat 13:30 TSİ (10:30 UTC) - Son Dakika Futbol & Transfer Gelişmesi
+    - cron: '25 10 * * *'
+    # 4) Saat 16:15 TSİ (13:15 UTC) - Futbol Genel Kültürü ("Biliyor Muydunuz?")
+    - cron: '10 13 * * *'
+    # 5) Saat 19:00 TSİ (16:00 UTC) - Maç Önü İstatistikleri & Form Analizi
+    - cron: '55 15 * * *'
+    # 6) Saat 22:00 TSİ (19:00 UTC) - Günün Maç Sonu Analizi & Skor Özeti
+    - cron: '55 18 * * *'
   workflow_dispatch:
     inputs:
       mode:
@@ -66,25 +60,27 @@ jobs:
           printf '%s' "$YT_TOKEN_JSON" > youtube_token.json
 
       - name: Saate Göre Spor Shorts Videosunu Üret ve Yayınla
+        env:
+          FORCE_UPLOAD: ${{ github.event_name == 'workflow_dispatch' && '1' || '0' }}
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             MODE="${{ github.event.inputs.mode }}"
           else
             SCHED="${{ github.event.schedule }}"
             case "$SCHED" in
-              "48 4 * * *"|"2 5 * * *")
+              "55 4 * * *")
                 MODE="headlines"
                 ;;
-              "35 7 * * *"|"48 7 * * *")
+              "40 7 * * *")
                 MODE="biography"
                 ;;
-              "20 10 * * *"|"33 10 * * *")
+              "25 10 * * *")
                 MODE="breaking"
                 ;;
-              "5 13 * * *"|"18 13 * * *")
+              "10 13 * * *")
                 MODE="trivia"
                 ;;
-              "48 15 * * *"|"2 16 * * *")
+              "55 15 * * *")
                 MODE="pre_match"
                 ;;
               *)
