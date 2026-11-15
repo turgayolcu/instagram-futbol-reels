@@ -1118,18 +1118,11 @@ def render_subscribe_outro_frame(frame: Image.Image, draw: ImageDraw.ImageDraw, 
     """
     Son 2.8 saniyede bahis/bayi ekranı yerine şık 'KANALA ABONE OL & BİLDİRİMLERİ AÇ' kartı çizer.
     """
-    for y in range(HEIGHT):
-        ratio = y / HEIGHT
-        r = int(10 * (1 - ratio) + 4 * ratio)
-        g = int(18 * (1 - ratio) + 8 * ratio)
-        b = int(38 * (1 - ratio) + 18 * ratio)
-        draw.line([(0, y), (WIDTH, y)], fill=(r, g, b))
-
     prog = ease_out_back(min(1.0, elapsed / 0.45))
     cx, cy = WIDTH // 2, HEIGHT // 2
-    cw = int(900 * prog)
-    ch = int(680 * prog)
-    x1, y1, x2, y2 = cx - cw // 2, cy - ch // 2
+    cw = max(40, int(900 * prog))
+    ch = max(40, int(680 * prog))
+    x1, y1, x2, y2 = cx - cw // 2, cy - ch // 2, cx + cw // 2, cy + ch // 2
 
     draw.rounded_rectangle([x1, y1, x2, y2], radius=36, fill=CARD_NAVY, outline=ACCENT_GOLD, width=5)
 
@@ -1176,6 +1169,14 @@ def render_sports_short_mp4(poster_path: Path, vo_script: str, out_mp4: Path) ->
 
     total_frames = int(math.ceil(total_dur * FPS))
     poster_base = Image.open(poster_path).convert("RGB").resize((WIDTH, HEIGHT), Image.Resampling.LANCZOS)
+    outro_bg = Image.new("RGB", (WIDTH, HEIGHT), BG_DARK_BOT)
+    outro_bg_draw = ImageDraw.Draw(outro_bg)
+    for y in range(HEIGHT):
+        ratio = y / HEIGHT
+        r = int(10 * (1 - ratio) + 4 * ratio)
+        g = int(18 * (1 - ratio) + 8 * ratio)
+        b = int(38 * (1 - ratio) + 18 * ratio)
+        outro_bg_draw.line([(0, y), (WIDTH, y)], fill=(r, g, b))
     sub_delay_ms = int(main_dur * 1000)
 
     filter_complex = (
@@ -1218,7 +1219,7 @@ def render_sports_short_mp4(poster_path: Path, vo_script: str, out_mp4: Path) ->
             if bar_w > 4:
                 draw.rounded_rectangle([48, HEIGHT - 84, 48 + bar_w, HEIGHT - 77], radius=3, fill=ACCENT_GOLD)
         else:
-            frame = Image.new("RGB", (WIDTH, HEIGHT), BG_DARK_BOT)
+            frame = outro_bg.copy()
             draw = ImageDraw.Draw(frame)
             render_subscribe_outro_frame(frame, draw, t - main_dur, outro_dur)
 
