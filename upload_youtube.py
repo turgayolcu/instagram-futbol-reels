@@ -1,9 +1,9 @@
 """
-Resmi YouTube Data API v3 Shorts Yükleyici (upload_youtube.py)
+Resmi YouTube Data API v3 Spor Medyası Shorts Yükleyici (upload_youtube.py)
 - 9:16 dikey (< 60 sn) MP4 videolarını otomatik olarak YouTube Shorts (#Shorts) olarak yükler.
+- Sıfır bahis/iddaa ibaresi: %100 saf spor haberi, futbol analizi, biyografi ve genel kültür kanalı formatı.
 - Hem yerelde (youtube_token.json) hem GitHub Actions bulutunda (YT_TOKEN_JSON secret)
   otomatik Refresh Token yenilemesiyle şifresiz ve kesintisiz çalışır.
-- Mükerrer paylaşım koruması: son 2.5 saat içinde aynı başlık yüklendiyse tekrar yüklemez (API kotasını korur).
 """
 
 import datetime
@@ -25,29 +25,11 @@ SCOPES = [
     "https://www.googleapis.com/auth/youtube.readonly",
 ]
 
-MANDATORY_DEALER_BLOCK = (
-    "📲 İddaa Resmi Uygulaması: Hesabım -> Kayıtlı Bayim -> 304168\n"
-    "İddaa: 304168 | Tjk: 1607 | Milli Piyango: 117718"
-)
-
-
-def get_fetched_timestamp(base_dir: Path) -> str:
-    data_file = base_dir / "default_data.json"
-    if data_file.exists():
-        try:
-            payload = json.loads(data_file.read_text(encoding="utf-8"))
-            if payload.get("odds_fetched_at"):
-                return str(payload["odds_fetched_at"])
-        except Exception:
-            pass
-    tz_tr = datetime.timezone(datetime.timedelta(hours=3))
-    return datetime.datetime.now(tz_tr).strftime("%d.%m.%Y - %H:%M")
-
 
 def ensure_shorts_duration(video_path: Path) -> Path:
     """
     YouTube Shorts algoritmasının videoyu %100 Shorts olarak tanıması için süreyi kontrol eder;
-    59.0 saniyeyi aşıyorsa hafif hızlandırarak veya kırparak 58.5 saniyenin altında tutar.
+    58.8 saniyeyi aşıyorsa hafif hızlandırarak 57.5 saniyenin altında tutar.
     """
     try:
         res = subprocess.run(
@@ -65,7 +47,7 @@ def ensure_shorts_duration(video_path: Path) -> Path:
         if dur <= 58.8:
             return video_path
 
-        speed = (dur / 57.5)
+        speed = dur / 57.5
         trimmed_path = video_path.with_name(f"{video_path.stem}_short.mp4")
         subprocess.run(
             [
@@ -86,43 +68,31 @@ def ensure_shorts_duration(video_path: Path) -> Path:
     return video_path
 
 
-def build_title_and_description(raw_caption: str, base_dir: Path) -> Tuple[str, str, List[str]]:
+def build_title_and_description(raw_caption: str) -> Tuple[str, str, List[str]]:
     lines = [ln.strip() for ln in raw_caption.strip().splitlines() if ln.strip()]
-    first_line = lines[0] if lines else "Günün Futbol ve İddaa Analizi!"
-    # İlk satırdaki hashtagleri başlıktan temizle
+    first_line = lines[0] if lines else "Günün Futbol Gündemi!"
     clean_first = " ".join(w for w in first_line.split() if not w.startswith("#")).strip()
     if not clean_first:
-        clean_first = "Günün Futbol ve İddaa Analizi!"
+        clean_first = "Günün Futbol Gündemi!"
 
-    # YouTube başlık sınırı 100 karakterdir; sonuna mutlaka #Shorts eklenir
     suffix = " #Shorts"
     max_base_len = 100 - len(suffix)
     if len(clean_first) > max_base_len:
         clean_first = clean_first[: max_base_len - 1].rstrip() + "…"
     yt_title = f"{clean_first}{suffix}"
 
-    fetched_at = get_fetched_timestamp(base_dir)
-    if "sonuç" in raw_caption.lower():
-        source_line = (
-            f"📌 Kaynak: Mackolik.com & iddaa.com (Maç Sonuçları Teyit Saati: {fetched_at} TSİ)"
-        )
-    else:
-        source_line = (
-            f"📌 Kaynak: iddaa.com (Oranların eklendiği saat: {fetched_at} TSİ | Oranlar değişiklik gösterebilir.)"
-        )
-
-    desc_parts = [raw_caption.strip(), source_line]
-    if "sorumlu oyun" not in raw_caption.lower():
-        desc_parts.append("⚠️ +18 | SORUMLU OYUN — Bu içerik yalnızca istatistiksel bilgilendirme amaçlıdır.")
-    if "304168" not in raw_caption:
-        desc_parts.append(MANDATORY_DEALER_BLOCK)
+    desc_parts = [
+        raw_caption.strip(),
+        "🔔 En güncel futbol haberleri, maç önü istatistikleri, maç sonu analizleri, futbolcu hikayeleri ve futbol genel kültürü için kanalımıza abone olmayı unutmayın!",
+    ]
     if "#shorts" not in raw_caption.lower():
-        desc_parts.append("#Shorts #Futbol #İddaa #MaçTahmini #KralOran #Spor")
+        desc_parts.append("#Shorts #Futbol #SporHaberleri #SüperLig #ŞampiyonlarLigi #FutbolAnaliz")
 
     yt_desc = "\n\n".join(desc_parts)[:4900]
     tags = [
-        "shorts", "futbol", "iddaa", "iddaa tahminleri", "günün kuponu",
-        "maç sonuçları", "kral oran", "süper lig", "şampiyonlar ligi", "avrupa ligi",
+        "shorts", "futbol", "spor haberleri", "son dakika spor", "süper lig",
+        "futbol genel kültür", "futbolcu hikayeleri", "maç analizi", "galatasaray",
+        "fenerbahçe", "beşiktaş", "trabzonspor", "şampiyonlar ligi",
     ]
     return yt_title, yt_desc, tags
 
@@ -142,8 +112,7 @@ def load_youtube_credentials(base_dir: Path):
 
     if not token_data:
         raise RuntimeError(
-            "YouTube oturum anahtarı (youtube_token.json veya YT_TOKEN_JSON) bulunamadı! "
-            "Önce 'python setup_youtube_auth.py' çalıştırın."
+            "YouTube oturum anahtarı (youtube_token.json veya YT_TOKEN_JSON) bulunamadı!"
         )
 
     creds = Credentials.from_authorized_user_info(token_data, SCOPES)
@@ -156,8 +125,7 @@ def load_youtube_credentials(base_dir: Path):
 
 def is_duplicate_recent_short(yt, yt_title: str) -> bool:
     """
-    Son 2.5 saat içinde kanalın yüklemeler listesinde birebir aynı başlık varsa
-    mükerrer yüklemeyi (ve 1600 birimlik kota harcamasını) önler (sadece 2 birim okuma harcar).
+    Son 90 dakika içinde birebir aynı başlık yüklendiyse mükerrer yüklemeyi önler (sadece 2 birim okuma harcar).
     """
     try:
         ch_resp = yt.channels().list(part="contentDetails", mine=True).execute()
@@ -165,21 +133,21 @@ def is_duplicate_recent_short(yt, yt_title: str) -> bool:
         if not items:
             return False
         uploads_pl = items[0]["contentDetails"]["relatedPlaylists"]["uploads"]
-        pl_resp = yt.playlistItems().list(part="snippet", playlistId=uploads_pl, maxResults=6).execute()
+        pl_resp = yt.playlistItems().list(part="snippet", playlistId=uploads_pl, maxResults=5).execute()
         now_utc = datetime.datetime.now(datetime.timezone.utc)
-        target_prefix = yt_title.replace("#Shorts", "").strip().lower()[:32]
+        target_prefix = yt_title.replace("#Shorts", "").strip().lower()[:30]
         for item in pl_resp.get("items", []):
             snip = item.get("snippet", {})
             pub_str = snip.get("publishedAt", "")
             existing_title = snip.get("title", "").lower()
             if pub_str and target_prefix and target_prefix in existing_title:
                 pub_dt = datetime.datetime.fromisoformat(pub_str.replace("Z", "+00:00"))
-                if (now_utc - pub_dt).total_seconds() < 2.5 * 3600:
+                if (now_utc - pub_dt).total_seconds() < 90 * 60:
                     vid_id = snip.get("resourceId", {}).get("videoId", "")
-                    print(f"[BİLGİ] '{yt_title}' son 2.5 saat içinde zaten YouTube'a yüklenmiş (Video ID: {vid_id}). Atlandı.")
+                    print(f"[BİLGİ] '{yt_title}' son 90 dk içinde zaten yüklenmiş (ID: {vid_id}). Atlandı.")
                     return True
     except Exception as e:
-        print(f"[UYARI] Son YouTube yüklemeleri kontrol edilemedi, devam ediliyor: {e}")
+        print(f"[UYARI] Son yükleme kontrolü atlandı: {e}")
     return False
 
 
@@ -191,7 +159,7 @@ def upload_short(video_path: Path, caption: str, privacy_status: str = "public")
     from googleapiclient.http import MediaFileUpload
 
     yt = build("youtube", "v3", credentials=creds)
-    yt_title, yt_desc, tags = build_title_and_description(caption, base_dir)
+    yt_title, yt_desc, tags = build_title_and_description(caption)
 
     if is_duplicate_recent_short(yt, yt_title):
         return "SKIPPED_DUPLICATE"

@@ -1,38 +1,42 @@
-name: YouTube Gunluk Futbol Shorts Otomasyonu
+name: YouTube Spor Gundemi Shorts Otomasyonu
 
 on:
   schedule:
-    # 1) Saat 09:00 TSİ - VS Temalı Manşet Shorts (En fazla 2 dev maç, 15 dk arayla)
-    - cron: '45 5 * * *'
-    - cron: '2 6 * * *'
-    # 2) Saat 10:10 TSİ - Günün Maçları & İddaa Oranları Shorts
-    - cron: '55 6 * * *'
-    - cron: '10 7 * * *'
-    # 3) Saat 14:00 TSİ - Takım Armalı Son 5 Maç Karnesi Shorts
-    - cron: '45 10 * * *'
-    - cron: '0 11 * * *'
-    # 4) Saat 15:00 TSİ - Günün Banko Kuponu Shorts
-    - cron: '45 11 * * *'
-    - cron: '0 12 * * *'
-    # 5) Saat 23:59 TSİ - Günün Biten Maç Sonuçları Shorts
-    - cron: '42 20 * * *'
-    - cron: '59 20 * * *'
+    # 1) Saat 08:00 TSİ - Günün Spor Manşetleri
+    - cron: '48 4 * * *'
+    - cron: '2 5 * * *'
+    # 2) Saat 10:45 TSİ - Futbolcu Biyografisi & Hikayesi
+    - cron: '35 7 * * *'
+    - cron: '48 7 * * *'
+    # 3) Saat 13:30 TSİ - Son Dakika Futbol & Transfer Gelişmesi
+    - cron: '20 10 * * *'
+    - cron: '33 10 * * *'
+    # 4) Saat 16:15 TSİ - Futbol Genel Kültürü ("Biliyor Muydunuz?")
+    - cron: '5 13 * * *'
+    - cron: '18 13 * * *'
+    # 5) Saat 19:00 TSİ - Maç Önü İstatistikleri & Form Analizi
+    - cron: '48 15 * * *'
+    - cron: '2 16 * * *'
+    # 6) Saat 22:00 TSİ - Günün Maç Sonu Analizi & Skor Özeti
+    - cron: '48 18 * * *'
+    - cron: '2 19 * * *'
   workflow_dispatch:
     inputs:
       mode:
-        description: 'Paylaşım Konsepti (vs = 09:00 VS Manşet, odds = 10:10 Bülten, last5 = 14:00 Son 5 Maç, coupon = 15:00 Kupon, results = 23:59 Sonuçlar)'
+        description: 'Spor Shorts Kategorisi'
         required: true
-        default: 'odds'
+        default: 'headlines'
         type: choice
         options:
-          - vs
-          - odds
-          - last5
-          - coupon
-          - results
+          - headlines
+          - biography
+          - breaking
+          - trivia
+          - pre_match
+          - post_match
 
 jobs:
-  publish-shorts:
+  publish-sports-shorts:
     runs-on: ubuntu-latest
     env:
       TZ: Europe/Istanbul
@@ -45,11 +49,11 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Sistem Fontlarını, FFmpeg ve YouTube API Kütüphanelerini Yükle
+      - name: Sistem Fontlarını, FFmpeg ve Kütüphaneleri Yükle
         run: |
           sudo apt-get update -y
           sudo apt-get install -y ffmpeg fonts-dejavu-core
-          pip install --quiet pillow edge-tts gTTS requests numpy google-api-python-client google-auth-oauthlib google-auth-httplib2 instagrapi
+          pip install --quiet pillow edge-tts requests numpy google-api-python-client google-auth-oauthlib google-auth-httplib2 instagrapi
 
       - name: YouTube OAuth Anahtarını Hazırla
         env:
@@ -61,46 +65,33 @@ jobs:
           fi
           printf '%s' "$YT_TOKEN_JSON" > youtube_token.json
 
-      - name: Saate Göre YouTube Shorts Üret ve Yayınla
+      - name: Saate Göre Spor Shorts Videosunu Üret ve Yayınla
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             MODE="${{ github.event.inputs.mode }}"
           else
             SCHED="${{ github.event.schedule }}"
             case "$SCHED" in
-              "45 5 * * *"|"2 6 * * *")
-                MODE="vs"
+              "48 4 * * *"|"2 5 * * *")
+                MODE="headlines"
                 ;;
-              "55 6 * * *"|"10 7 * * *")
-                MODE="odds"
+              "35 7 * * *"|"48 7 * * *")
+                MODE="biography"
                 ;;
-              "45 10 * * *"|"0 11 * * *")
-                MODE="last5"
+              "20 10 * * *"|"33 10 * * *")
+                MODE="breaking"
                 ;;
-              "45 11 * * *"|"0 12 * * *")
-                MODE="coupon"
+              "5 13 * * *"|"18 13 * * *")
+                MODE="trivia"
+                ;;
+              "48 15 * * *"|"2 16 * * *")
+                MODE="pre_match"
                 ;;
               *)
-                MODE="results"
+                MODE="post_match"
                 ;;
             esac
           fi
 
-          echo "Aktif YouTube Shorts Otomasyon Modu: $MODE"
-
-          if [ "$MODE" = "vs" ]; then
-            python auto_manset_reels.py --mode vs --platform youtube --upload --interval 900
-          elif [ "$MODE" = "last5" ]; then
-            python auto_manset_reels.py --mode last5 --platform youtube --upload --interval 900
-          else
-            python cloud_fetcher.py
-            python motion_reels.py --mode "$MODE" --category spor
-            if [ "$MODE" = "odds" ]; then
-              CAPTION="🔥 Günün Maçları & İddaa Oranları! ⚽ #Shorts #iddaa #futbol #süperlig #avrupaligi"
-            elif [ "$MODE" = "coupon" ]; then
-              CAPTION="🎯 Günün Banko Kuponu Hazır! ⚽🔥 #Shorts #iddaa #bankokupon #futbol #tahmin"
-            else
-              CAPTION="🏁 Günün Biten Maç Sonuçları! ⚽ #Shorts #iddaa #maçsonuçları #futbol #süperlig"
-            fi
-            python upload_youtube.py "output/reels_${MODE}_latest.mp4" "$CAPTION"
-          fi
+          echo "Aktif Spor Shorts Kategorisi: $MODE"
+          python youtube_sports_shorts.py --mode "$MODE" --upload
