@@ -97,30 +97,49 @@ def build_title_and_description(raw_caption: str) -> Tuple[str, str, List[str]]:
     return yt_title, yt_desc, tags
 
 
-def load_youtube_credentials(base_dir: Path):
+def load_all_youtube_credentials(base_dir: Path) -> List[Tuple[str, object]]:
     from google.auth.transport.requests import Request
     from google.oauth2.credentials import Credentials
 
-    token_file = base_dir / "youtube_token.json"
-    env_json = os.environ.get("YT_TOKEN_JSON", "").strip()
+    slots = [
+        ("Proje-1", base_dir / "youtube_token.json", os.environ.get("YT_TOKEN_JSON", "").strip()),
+        ("Proje-2", base_dir / "youtube_token_2.json", os.environ.get("YT_TOKEN_JSON_2", "").strip()),
+        ("Proje-3", base_dir / "youtube_token_3.json", os.environ.get("YT_TOKEN_JSON_3", "").strip()),
+    ]
+    loaded: List[Tuple[str, object]] = []
+    for label, token_file, env_json in slots:
+        token_data = None
+        if token_file.exists() and token_file.stat().st_size > 20:
+            try:
+                token_data = json.loads(token_file.read_text(encoding="utf-8"))
+            except Exception:
+                token_data = None
+        elif env_json:
+            try:
+                token_data = json.loads(env_json)
+            except Exception:
+                token_data = None
+        if not token_data:
+            continue
+        try:
+            creds = Credentials.from_authorized_user_info(token_data, SCOPES)
+            if creds.expired and creds.refresh_token:
+                creds.refresh(Request())
+                if token_file.exists():
+                    token_file.write_text(creds.to_json(), encoding="utf-8")
+            loaded.append((label, creds))
+        except Exception as e:
+            print(f"[UYARI] {label} kimlik doğrulaması yenilenemedi: {e}")
 
-    token_data = None
-    if token_file.exists() and token_file.stat().st_size > 20:
-        token_data = json.loads(token_file.read_text(encoding="utf-8"))
-    elif env_json:
-        token_data = json.loads(env_json)
-
-    if not token_data:
+    if not loaded:
         raise RuntimeError(
             "YouTube oturum anahtarı (youtube_token.json veya YT_TOKEN_JSON) bulunamadı!"
         )
+    return loaded
 
-    creds = Credentials.from_authorized_user_info(token_data, SCOPES)
-    if creds.expired and creds.refresh_token:
-        creds.refresh(Request())
-        if token_file.exists():
-            token_file.write_text(creds.to_json(), encoding="utf-8")
-    return creds
+
+def load_youtube_credentials(base_dir: Path):
+    return load_all_youtube_credentials(base_dir)[0][1]
 
 
 def is_duplicate_recent_short(yt, yt_title: str) -> bool:
@@ -147,13 +166,13 @@ def is_duplicate_recent_short(yt, yt_title: str) -> bool:
                 continue
             pub_dt = datetime.datetime.fromisoformat(pub_str.replace("Z", "+00:00"))
             age_sec = (now_utc - pub_dt).total_seconds()
-            if age_sec < 45 * 60:
+            if age_sec < 32 * 60:
                 vid_id = snip.get("resourceId", {}).get("videoId", "")
-                print(f"[BİLGİ] Son 45 dk içinde zaten bir Shorts yayınlanmış (ID: {vid_id}). Kota koruması devrede.")
+                print(f"[BİLGİ] Son 32 dk içinde zaten bir Shorts yayınlanmış (ID: {vid_id}). Saatlik çakışma koruması devrede.")
                 return True
-            if target_prefix and target_prefix in existing_title and age_sec < 6 * 3600:
+            if target_prefix and target_prefix in existing_title and age_sec < 24 * 3600:
                 vid_id = snip.get("resourceId", {}).get("videoId", "")
-                print(f"[BİLGİ] '{yt_title}' son 6 saat içinde zaten yüklenmiş (ID: {vid_id}). Atlandı.")
+                print(f"[BİLGİ] '{yt_title}' son 24 saat içinde zaten yüklenmiş (ID: {vid_id}). Atlandı.")
                 return True
     except Exception as e:
         print(f"[UYARI] Son yükleme kontrolü atlandı: {e}")
@@ -162,20 +181,19 @@ def is_duplicate_recent_short(yt, yt_title: str) -> bool:
 
 def upload_short(video_path: Path, caption: str, privacy_status: str = "public") -> Optional[str]:
     base_dir = Path(__file__).resolve().parent
-    creds = load_youtube_credentials(base_dir)
+    cred_pool = load_all_youtube_credentials(base_dir)
 
     from googleapiclient.discovery import build
+    from googleapiclient.errors import HttpError
     from googleapiclient.http import MediaFileUpload
 
-    yt = build("youtube", "v3", credentials=creds)
+    yt_first = build("youtube", "v3", credentials=cred_pool[0][1])
     yt_title, yt_desc, tags = build_title_and_description(caption)
 
-    if is_duplicate_recent_short(yt, yt_title):
+    if is_duplicate_recent_short(yt_first, yt_title):
         return "SKIPPED_DUPLICATE"
 
     ready_video = ensure_shorts_duration(video_path)
-    print(f"[1/2] YouTube Shorts yükleniyor: {ready_video.name} | Başlık: {yt_title}")
-
     body = {
         "snippet": {
             "title": yt_title,
@@ -191,24 +209,39 @@ def upload_short(video_path: Path, caption: str, privacy_status: str = "public")
         },
     }
 
-    media = MediaFileUpload(
-        str(ready_video),
-        mimetype="video/mp4",
-        chunksize=4 * 1024 * 1024,
-        resumable=True,
-    )
-    req = yt.videos().insert(part="snippet,status", body=body, media_body=media)
+    last_err = None
+    for slot_label, creds in cred_pool:
+        try:
+            yt = build("youtube", "v3", credentials=creds)
+            print(f"[1/2] YouTube Shorts yükleniyor ({slot_label}): {ready_video.name} | Başlık: {yt_title}")
+            media = MediaFileUpload(
+                str(ready_video),
+                mimetype="video/mp4",
+                chunksize=4 * 1024 * 1024,
+                resumable=True,
+            )
+            req = yt.videos().insert(part="snippet,status", body=body, media_body=media)
+            response = None
+            while response is None:
+                status, response = req.next_chunk()
+                if status:
+                    pct = int(status.progress() * 100)
+                    print(f"  -> Yükleme ilerlemesi: %{pct}")
 
-    response = None
-    while response is None:
-        status, response = req.next_chunk()
-        if status:
-            pct = int(status.progress() * 100)
-            print(f"  -> Yükleme ilerlemesi: %{pct}")
+            video_id = response.get("id", "")
+            print(f"[2/2] BAŞARILI ({slot_label})! YouTube Shorts yayında: https://www.youtube.com/shorts/{video_id}")
+            return video_id
+        except HttpError as he:
+            last_err = he
+            err_txt = str(he)
+            if "quotaExceeded" in err_txt or "uploadLimitExceeded" in err_txt:
+                print(f"[UYARI] {slot_label} günlük YouTube API kotası doldu, yedek anahtara geçiliyor...")
+                continue
+            raise
 
-    video_id = response.get("id", "")
-    print(f"[2/2] BAŞARILI! YouTube Shorts yayında: https://www.youtube.com/shorts/{video_id}")
-    return video_id
+    if last_err is not None:
+        raise last_err
+    return None
 
 
 if __name__ == "__main__":

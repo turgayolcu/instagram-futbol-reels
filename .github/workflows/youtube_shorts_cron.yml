@@ -1,19 +1,10 @@
-name: YouTube Shorts Spor Otomasyonu
+name: YouTube Shorts Saatlik Spor Otomasyonu
 
 on:
   schedule:
-    # 1) 08:00 TSİ (05:00 UTC) - Günün Spor Manşetleri (Detaylı Bülten)
-    - cron: '55 4 * * *'
-    # 2) 10:45 TSİ (07:45 UTC) - Futbolcu Biyografisi & Efsane Hikayeler
-    - cron: '40 7 * * *'
-    # 3) 13:30 TSİ (10:30 UTC) - Son Dakika Futbol & Transfer Gelişmesi
-    - cron: '25 10 * * *'
-    # 4) 16:15 TSİ (13:15 UTC) - Futbol Genel Kültürü ("Biliyor Muydunuz?")
-    - cron: '10 13 * * *'
-    # 5) 19:30 TSİ (16:30 UTC) - Maç Önü İstatistikleri & Form Analizi
-    - cron: '25 16 * * *'
-    # 6) 22:00 TSİ (19:00 UTC) - Günün Maç Sonu Analizi & Skor Özeti
-    - cron: '55 18 * * *'
+    # Her gün 08:00 - 24:00 (00:00) TSİ arası HER SAAT BAŞI (17 yayın/gün)
+    # 04:55 UTC = 07:55 TSİ (08:00 yayını) ... 20:55 UTC = 23:55 TSİ (24:00 yayını)
+    - cron: '55 4-20 * * *'
   workflow_dispatch:
     inputs:
       mode:
@@ -49,38 +40,53 @@ jobs:
           sudo apt-get install -y ffmpeg fonts-dejavu-core
           pip install --quiet pillow edge-tts requests numpy google-api-python-client google-auth-oauthlib google-auth-httplib2 instagrapi
 
-      - name: YouTube OAuth Anahtarını Hazırla
+      - name: YouTube OAuth Anahtar Havuzunu Hazırla
         env:
           YT_TOKEN_JSON: ${{ secrets.YT_TOKEN_JSON }}
+          YT_TOKEN_JSON_2: ${{ secrets.YT_TOKEN_JSON_2 }}
+          YT_TOKEN_JSON_3: ${{ secrets.YT_TOKEN_JSON_3 }}
         run: |
           if [ -z "$YT_TOKEN_JSON" ]; then
             echo "[HATA] YT_TOKEN_JSON GitHub Secret bulunamadı!"
             exit 1
           fi
           printf '%s' "$YT_TOKEN_JSON" > youtube_token.json
+          if [ -n "$YT_TOKEN_JSON_2" ]; then
+            printf '%s' "$YT_TOKEN_JSON_2" > youtube_token_2.json
+          fi
+          if [ -n "$YT_TOKEN_JSON_3" ]; then
+            printf '%s' "$YT_TOKEN_JSON_3" > youtube_token_3.json
+          fi
 
-      - name: Saate Göre Spor Shorts Videosunu Üret ve Yayınla
+      - name: Saat Başına Göre Spor Shorts Videosunu Üret ve Yayınla
         env:
           FORCE_UPLOAD: ${{ github.event_name == 'workflow_dispatch' && '1' || '0' }}
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             MODE="${{ github.event.inputs.mode }}"
           else
-            HOUR=$(date +%H)
-            if [ "$HOUR" -lt 10 ]; then
-              MODE="headlines"
-            elif [ "$HOUR" -lt 12 ]; then
-              MODE="biography"
-            elif [ "$HOUR" -lt 15 ]; then
-              MODE="breaking"
-            elif [ "$HOUR" -lt 18 ]; then
-              MODE="trivia"
-            elif [ "$HOUR" -lt 21 ]; then
-              MODE="pre_match"
-            else
-              MODE="post_match"
-            fi
+            SLOT_HOUR=$(date -d "+10 minutes" +%H)
+            case "$SLOT_HOUR" in
+              08|12|20)
+                MODE="headlines"
+                ;;
+              09|13|18)
+                MODE="biography"
+                ;;
+              10|14|17|23)
+                MODE="breaking"
+                ;;
+              11|16|21)
+                MODE="trivia"
+                ;;
+              15|19)
+                MODE="pre_match"
+                ;;
+              22|00|*)
+                MODE="post_match"
+                ;;
+            esac
           fi
 
-          echo "Aktif Spor Shorts Kategorisi: $MODE (Saat TSİ: $(date '+%H:%M'))"
+          echo "Aktif Spor Shorts Kategorisi: $MODE (Hedef Saat: $(date -d '+10 minutes' '+%H:00') TSİ)"
           python youtube_sports_shorts.py --mode "$MODE" --upload

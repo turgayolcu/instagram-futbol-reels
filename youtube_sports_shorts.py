@@ -398,6 +398,91 @@ TRIVIA_ITEMS: List[Dict[str, str]] = [
 ]
 
 
+DYNAMIC_BIO_STARS: List[Tuple[str, str, str]] = [
+    ("Mauro Icardi", "Mauro_Icardi", "GALATASARAY'IN ARJANTİNLİ SÜPER GOLCÜSÜ"),
+    ("Edin Džeko", "Edin_Džeko", "BOSNA ELMASINDAN GOL MAKİNESİ"),
+    ("Fernando Muslera", "Fernando_Muslera", "SÜPER LİG TARİHİNİN EFSANE ELDİVENİ"),
+    ("Ferdi Kadıoğlu", "Ferdi_Kadıoğlu", "MİLLİ TAKIMIN DİNAMOSU"),
+    ("Orkun Kökçü", "Orkun_Kökçü", "AVRUPA SAHNESİNDEKİ TÜRK MAESTRO"),
+    ("Barış Alper Yılmaz", "Barış_Alper_Yılmaz", "TÜRK FUTBOLUNUN FİZİK GÜCÜ YÜKSEK YILDIZI"),
+    ("Kerem Aktürkoğlu", "Kerem_Aktürkoğlu", "ALT LİGLERDEN AVRUPA DEVLERİNE UZANAN HİKAYE"),
+    ("Wesley Sneijder", "Wesley_Sneijder", "UZAK MESAFE FÜZELERİNİN HOLLANDALI USTASI"),
+    ("Didier Drogba", "Didier_Drogba", "FİNALLERİN ADAMI VE AFRİKA EFSANESİ"),
+    ("Roberto Carlos", "Roberto_Carlos", "FİZİK KURALLARINI YIKAN SOL BEK"),
+    ("Ricardo Quaresma", "Ricardo_Quaresma", "TRİVELA SANATININ PORTEKİZLİ ÜSTADI"),
+    ("Atiba Hutchinson", "Atiba_Hutchinson", "BEŞİKTAŞ'IN BİTMEYEN ENERJİSİ: AHTAPOT"),
+    ("Metin Oktay", "Metin_Oktay", "AĞLARI DELEN TAÇSIZ KRAL"),
+    ("Lefter Küçükandonyadis", "Lefter_Küçükandonyadis", "TÜRK FUTBOLUNUN ORDİNARYÜSÜ"),
+    ("Rüştü Reçber", "Rüştü_Reçber", "2002 DÜNYA KUPASI KAHRAMANI"),
+    ("Nihat Kahveci", "Nihat_Kahveci", "EURO 2008 DESTANININ UNUTULMAZ GOLCÜSÜ"),
+    ("Arda Turan", "Arda_Turan", "LA LIGA ŞAMPİYONU TÜRK KAPTAN"),
+    ("Burak Yılmaz", "Burak_Yılmaz", "LILLE İLE FRANSA'YI FETHEDEN KRAL"),
+    ("Jude Bellingham", "Jude_Bellingham", "REAL MADRID'İN İNGİLİZ SÜPER YILDIZI"),
+    ("Erling Haaland", "Erling_Haaland", "PREMIER LİG REKORLARINI PARAMPARÇA EDEN VİKİNG"),
+    ("Vinícius Júnior", "Vinícius_Júnior", "ŞAMPİYONLAR LİGİ FİNALLERİNİN YILDIZI"),
+    ("Mohamed Salah", "Mohamed_Salah", "ANFIELD'IN MISIR KRALI"),
+    ("Kevin De Bruyne", "Kevin_De_Bruyne", "MODERN FUTBOLUN ASİST PROFESÖRÜ"),
+    ("Luka Modrić", "Luka_Modrić", "YAŞLANMAYAN BALLON D'OR EFSANESİ"),
+    ("Zlatan Ibrahimović", "Zlatan_Ibrahimović", "AKROBATİK GOLLERİN İSVEÇLİ İKONU"),
+    ("Thierry Henry", "Thierry_Henry", "ARSENAL'İN YENİLMEZLER DÖNEMİ KRALI"),
+    ("Andrés Iniesta", "Andrés_Iniesta", "DÜNYA KUPASI FİNALİNİN İSPANYOL SİHİRBAZI"),
+    ("Gianluigi Buffon", "Gianluigi_Buffon", "FUTBOL TARİHİNİN ÖLÜMSÜZ İTALYAN KALECİSİ"),
+    ("Diego Maradona", "Diego_Maradona", "FUTBOLUN ARJANTİNLİ DAHİSİ"),
+    ("Pelé", "Pelé", "ÜÇ DÜNYA KUPASI KAZANAN TEK KRAL"),
+]
+
+
+def fetch_recent_channel_titles(max_results: int = 35) -> List[str]:
+    """
+    Saatlik yayın akışında aynı haber, futbolcu, bilgi veya maçın tekrar yüklenmemesi için
+    kanaldaki son videoların başlıklarını çeker (sadece 1 API birimi harcar).
+    """
+    try:
+        from googleapiclient.discovery import build
+        from upload_youtube import load_youtube_credentials
+
+        creds = load_youtube_credentials(BASE_DIR)
+        yt = build("youtube", "v3", credentials=creds)
+        ch = yt.channels().list(part="contentDetails", mine=True).execute().get("items", [])
+        if not ch:
+            return []
+        upl = ch[0]["contentDetails"]["relatedPlaylists"]["uploads"]
+        pl = yt.playlistItems().list(part="snippet", playlistId=upl, maxResults=max_results).execute()
+        return [it["snippet"]["title"].lower() for it in pl.get("items", []) if it.get("snippet", {}).get("title")]
+    except Exception:
+        return []
+
+
+def _build_dynamic_wiki_bio(name: str, wiki_slug: str, subtitle: str) -> Optional[Dict[str, str]]:
+    """
+    Türkçe Wikipedia özetinden gerçek kariyer cümlelerini çekerek saatlik sınırsız biyografi üretir.
+    """
+    try:
+        enc = urllib.parse.quote(wiki_slug)
+        r = requests.get(f"https://tr.wikipedia.org/api/rest_v1/page/summary/{enc}", headers=WIKI_HEADERS, timeout=8)
+        if r.status_code != 200:
+            return None
+        extract = _clean_news_text(r.json().get("extract", ""))
+        sents = [s.strip() for s in re.split(r"(?<!\d)(?<=[.!?])\s+", extract) if len(s.strip()) >= 35]
+        if len(sents) < 2:
+            return None
+        while len(sents) < 3:
+            sents.append(f"{name}, kariyeri boyunca kazandığı başarılar ve unutulmaz performanslarıyla futbol tarihine damga vurdu.")
+        vo_body = _trim_to_sentence(" ".join([_prepare_spoken_news_sentence(s) for s in sents[:3]]), 380)
+        return {
+            "name": name,
+            "wiki_tr": wiki_slug,
+            "wiki_en": wiki_slug,
+            "subtitle": subtitle,
+            "fact1": _trim_to_sentence(sents[0], 175),
+            "fact2": _trim_to_sentence(sents[1], 175),
+            "fact3": _trim_to_sentence(sents[2], 175),
+            "vo": f"Futbolcu portresinde bu saatte: {name}! {vo_body} Siz {name} hakkında ne düşünüyorsunuz? Yorumlara yazın!",
+        }
+    except Exception:
+        return None
+
+
 def fetch_wiki_image(wiki_title: str, lang: str = "tr") -> Optional[Image.Image]:
     """
     Wikipedia REST API'den ilgili kişi/konunun yüksek çözünürlüklü gerçek fotoğrafını çeker.
@@ -910,8 +995,13 @@ def _render_detailed_story_poster(
 
 
 def build_headlines_short() -> Tuple[List[Tuple[Path, str]], str]:
-    """1) Sabah 08:00 - Günün Spor Manşetleri (Her manşetin gerçek haber içeriği ve özel sahnesiyle)"""
-    stories = fetch_rich_football_news(limit=3, prefer_breaking=False)
+    """Sabah/Öğle/Akşam Spor Bülteni (Her manşetin gerçek haber içeriği ve özel sahnesiyle, tekrarsız)"""
+    recent_titles = fetch_recent_channel_titles()
+    all_stories = fetch_rich_football_news(limit=8, prefer_breaking=False)
+    stories = [
+        s for s in all_stories
+        if not any(s["headline"].lower()[:22] in rt for rt in recent_titles)
+    ] or all_stories
     if not stories:
         stories = [
             {
@@ -958,9 +1048,32 @@ def build_headlines_short() -> Tuple[List[Tuple[Path, str]], str]:
 
 
 def build_biography_short(target_date: datetime.date) -> Tuple[Path, str, str]:
-    """2) 10:45 - Futbolcu Biyografisi"""
-    day_idx = (target_date.toordinal() + 3) % len(BIOGRAPHIES)
-    bio = BIOGRAPHIES[day_idx]
+    """Saatlik Tekrarsız Futbolcu Biyografisi"""
+    recent_titles = fetch_recent_channel_titles()
+    tz_tr = datetime.timezone(datetime.timedelta(hours=3))
+    hour_now = datetime.datetime.now(tz_tr).hour
+    start_idx = (target_date.toordinal() * 7 + hour_now) % len(BIOGRAPHIES)
+
+    bio = None
+    for offset in range(len(BIOGRAPHIES)):
+        cand = BIOGRAPHIES[(start_idx + offset) % len(BIOGRAPHIES)]
+        if not any(cand["name"].lower() in rt for rt in recent_titles):
+            bio = cand
+            break
+
+    if bio is None:
+        dyn_start = (target_date.toordinal() * 11 + hour_now) % len(DYNAMIC_BIO_STARS)
+        for offset in range(len(DYNAMIC_BIO_STARS)):
+            nm, slug, sub = DYNAMIC_BIO_STARS[(dyn_start + offset) % len(DYNAMIC_BIO_STARS)]
+            if any(nm.lower() in rt for rt in recent_titles):
+                continue
+            dyn_bio = _build_dynamic_wiki_bio(nm, slug, sub)
+            if dyn_bio is not None:
+                bio = dyn_bio
+                break
+
+    if bio is None:
+        bio = BIOGRAPHIES[start_idx]
     photo = fetch_wiki_image(bio["wiki_tr"], lang="tr") or fetch_wiki_image(bio["wiki_en"], lang="en")
 
     img = build_broadcast_background(photo, accent=ACCENT_GOLD)
@@ -1004,8 +1117,13 @@ def build_biography_short(target_date: datetime.date) -> Tuple[Path, str, str]:
 
 
 def build_breaking_short() -> Tuple[List[Tuple[Path, str]], str]:
-    """3) 13:30 - Son Dakika Futbol & Transfer Gelişmesi (Tam Detaylı Özel Haber Dosyası)"""
-    stories = fetch_rich_football_news(limit=4, prefer_breaking=True)
+    """Son Dakika Futbol & Transfer Gelişmesi (Kanal geçmişine göre tekrarsız, tam detaylı)"""
+    recent_titles = fetch_recent_channel_titles()
+    all_stories = fetch_rich_football_news(limit=8, prefer_breaking=True)
+    stories = [
+        s for s in all_stories
+        if not any(s["headline"].lower()[:22] in rt for rt in recent_titles)
+    ] or all_stories
     if not stories:
         return build_headlines_short()
 
@@ -1036,9 +1154,17 @@ def build_breaking_short() -> Tuple[List[Tuple[Path, str]], str]:
 
 
 def build_trivia_short(target_date: datetime.date) -> Tuple[Path, str, str]:
-    """4) 16:15 - Futbol Genel Kültürü & İlginç Bilgiler"""
-    t_idx = (target_date.toordinal() + 5) % len(TRIVIA_ITEMS)
-    trv = TRIVIA_ITEMS[t_idx]
+    """Futbol Genel Kültürü & İlginç Bilgiler (Kanal geçmişine göre tekrarsız)"""
+    recent_titles = fetch_recent_channel_titles()
+    tz_tr = datetime.timezone(datetime.timedelta(hours=3))
+    hour_now = datetime.datetime.now(tz_tr).hour
+    start_idx = (target_date.toordinal() * 5 + hour_now) % len(TRIVIA_ITEMS)
+    trv = TRIVIA_ITEMS[start_idx]
+    for offset in range(len(TRIVIA_ITEMS)):
+        cand = TRIVIA_ITEMS[(start_idx + offset) % len(TRIVIA_ITEMS)]
+        if not any(cand["headline"].lower()[:20] in rt for rt in recent_titles):
+            trv = cand
+            break
     photo = fetch_wiki_image(trv["wiki_en"], lang="en")
 
     img = build_broadcast_background(photo, accent=ACCENT_CYAN)
@@ -1145,13 +1271,18 @@ def _fetch_mackolik_day_matches(target_date: datetime.date) -> List[Dict[str, An
 
 
 def build_pre_match_short(target_date: datetime.date) -> Tuple[List[Tuple[Path, str]], str]:
-    """5) 19:00 - Maç Önü İstatistikleri & Form Karşılaştırması (Sıfır İddaa/Oran!)"""
+    """Maç Önü İstatistikleri & Form Karşılaştırması (Sıfır İddaa/Oran, tekrarsız maç seçimi)"""
+    recent_titles = fetch_recent_channel_titles(max_results=18)
     matches = _fetch_mackolik_day_matches(target_date)
     upcoming = [m for m in matches if m["status"] in ("", "0", "Başlamadı")] or matches
     if not upcoming:
         return build_headlines_short()
 
-    m = upcoming[0]
+    fresh_upcoming = [
+        x for x in upcoming
+        if not any(x["home"].lower() in rt and x["away"].lower() in rt for rt in recent_titles)
+    ]
+    m = fresh_upcoming[0] if fresh_upcoming else upcoming[0]
     h_last5 = fetch_team_last_5_matches(m["home_id"], m["home"], target_date)
     a_last5 = fetch_team_last_5_matches(m["away_id"], m["away"], target_date)
 

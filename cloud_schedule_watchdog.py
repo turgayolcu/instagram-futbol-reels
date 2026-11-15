@@ -1,8 +1,8 @@
 """
-GitHub Actions Zamanlayıcı Yedek Bekçisi (cloud_schedule_watchdog.py)
-- GitHub'ın ücretsiz cron sunucusu yoğunluk nedeniyle gecikirse veya atlarsa,
-  son 35 dakikada bulut çalışması başlamamışsa otomatik olarak GitHub Actions iş akışını tetikler.
-- İçinde hiçbir gizli anahtar barındırmaz; yerel Windows Git kimlik bilgisini kullanır.
+GitHub Actions Saatlik Zamanlayıcı Yedek Bekçisi (cloud_schedule_watchdog.py)
+- 08:00 - 24:00 (00:00) arası her saat başı kontrol yapar;
+  GitHub'ın ücretsiz cron sunucusu yoğunluk nedeniyle gecikirse veya atlarsa,
+  son 35 dakikada bulut çalışması başlamamışsa otomatik olarak o saatin kategorisini tetikler.
 """
 
 import datetime
@@ -12,6 +12,26 @@ import requests
 
 REPO = "turgayolcu/instagram-futbol-reels"
 WORKFLOW_FILE = "youtube_shorts_cron.yml"
+
+HOURLY_MODES = {
+    8: "headlines",
+    9: "biography",
+    10: "breaking",
+    11: "trivia",
+    12: "headlines",
+    13: "biography",
+    14: "breaking",
+    15: "pre_match",
+    16: "trivia",
+    17: "breaking",
+    18: "biography",
+    19: "pre_match",
+    20: "headlines",
+    21: "trivia",
+    22: "post_match",
+    23: "breaking",
+    0: "post_match",
+}
 
 
 def get_github_token() -> str:
@@ -25,21 +45,15 @@ def get_github_token() -> str:
     raise RuntimeError("GitHub kimlik bilgisi bulunamadı.")
 
 
-def pick_mode_for_hour(hour: int) -> str:
-    if hour < 10:
-        return "headlines"
-    if hour < 12:
-        return "biography"
-    if hour < 15:
-        return "breaking"
-    if hour < 18:
-        return "trivia"
-    if hour < 21:
-        return "pre_match"
-    return "post_match"
-
-
 def main() -> None:
+    tz_tr = datetime.timezone(datetime.timedelta(hours=3))
+    now_tr = datetime.datetime.now(tz_tr)
+    hour_tr = now_tr.hour
+
+    # Sadece 08:00 - 00:15 (24:00 kuşağı dahil) saatleri arasında çalış; 01:00 - 07:59 arası gece uykusu
+    if 1 <= hour_tr <= 7 and len(sys.argv) <= 1:
+        return
+
     token = get_github_token()
     headers = {
         "Authorization": f"Bearer {token}",
@@ -63,9 +77,7 @@ def main() -> None:
                 print(f"[OK] Son {age_min:.1f} dk içinde bulut yayını zaten çalışmış (ID: {r.get('id')}).")
                 return
 
-    tz_tr = datetime.timezone(datetime.timedelta(hours=3))
-    hour_tr = datetime.datetime.now(tz_tr).hour
-    mode = sys.argv[1] if len(sys.argv) > 1 else pick_mode_for_hour(hour_tr)
+    mode = sys.argv[1] if len(sys.argv) > 1 else HOURLY_MODES.get(hour_tr, "headlines")
 
     disp = requests.post(
         f"https://api.github.com/repos/{REPO}/actions/workflows/{WORKFLOW_FILE}/dispatches",
@@ -73,7 +85,7 @@ def main() -> None:
         json={"ref": "master", "inputs": {"mode": mode}},
         timeout=15,
     )
-    print(f"[TETİKLENDİ] GitHub Actions '{mode}' yayını başlatıldı (HTTP {disp.status_code}).")
+    print(f"[TETİKLENDİ] GitHub Actions '{mode}' (Saat {hour_tr:02d}:00) yayını başlatıldı (HTTP {disp.status_code}).")
 
 
 if __name__ == "__main__":
