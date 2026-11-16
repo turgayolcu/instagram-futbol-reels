@@ -55,6 +55,7 @@ from auto_manset_reels import (
     tr_upper,
 )
 from motion_reels import ease_out_back, ease_out_cubic, generate_tts, get_audio_duration, load_font
+from graph_motion_engine import render_graph_motion_mp4
 from upload_youtube import upload_short
 
 WIKI_HEADERS = {
@@ -994,8 +995,42 @@ def _render_detailed_story_poster(
     return out_path
 
 
-def build_headlines_short() -> Tuple[List[Tuple[Path, str]], str]:
-    """Sabah/Öğle/Akşam Spor Bülteni (Her manşetin gerçek haber içeriği ve özel sahnesiyle, tekrarsız)"""
+def _story_to_motion_spec(
+    story: Dict[str, Any],
+    masthead: str,
+    badge: str,
+    vo_text: str,
+    accent: Tuple[int, int, int] = ACCENT_RED,
+) -> Dict[str, Any]:
+    photo = (
+        story.get("photo")
+        or detect_subject_photo(story["headline"])
+        or detect_subject_photo(story.get("spoken_detail", ""))
+        or fetch_wiki_image("UEFA_Champions_League", lang="en")
+    )
+    raw_paras = story.get("paragraphs") or [story.get("spoken_detail", "")]
+    bullets: List[str] = []
+    for p in raw_paras[:3]:
+        bullets.append(_trim_to_sentence(p, 195))
+    if len(bullets) == 1 and len(raw_paras[0]) > 150:
+        sents = [s.strip() for s in re.split(r"(?<!\d)(?<=[.!?])\s+", raw_paras[0]) if len(s.strip()) >= 35]
+        if len(sents) >= 2:
+            bullets = [_trim_to_sentence(s, 185) for s in sents[:3]]
+    return {
+        "kind": "story",
+        "masthead": masthead,
+        "badge": badge,
+        "headline": story["headline"],
+        "bullets": bullets[:3],
+        "photo": photo,
+        "accent": accent,
+        "ticker": story["headline"],
+        "vo": vo_text,
+    }
+
+
+def build_headlines_short() -> Tuple[List[Dict[str, Any]], str]:
+    """Sabah/Öğle/Akşam Spor Bülteni (Graph-Motion: her manşet kendi hareketli kartları ve tam detaylarıyla)"""
     recent_titles = fetch_recent_channel_titles()
     all_stories = fetch_rich_football_news(limit=8, prefer_breaking=False)
     stories = [
@@ -1016,9 +1051,8 @@ def build_headlines_short() -> Tuple[List[Tuple[Path, str]], str]:
             }
         ]
 
-    # 3 haber detayıyla 58 saniyeye rahat sığması için 2 veya 3 haber seç (toplam ~700 karakter sınırı)
     selected = stories[:2] if sum(len(s["spoken_detail"]) for s in stories[:3]) > 780 else stories[:3]
-    scenes: List[Tuple[Path, str]] = []
+    specs: List[Dict[str, Any]] = []
     intros = [
         "Günün spor bülteninde ilk haberimiz:",
         "Gündemdeki ikinci önemli gelişme:",
@@ -1027,12 +1061,10 @@ def build_headlines_short() -> Tuple[List[Tuple[Path, str]], str]:
 
     for idx, st in enumerate(selected):
         badge = f"GÜNÜN MANŞETİ {idx + 1}/{len(selected)}"
-        p_path = ASSETS_DIR / f"yt_headlines_scene_{idx + 1}.jpg"
-        _render_detailed_story_poster(st, "GÜNÜN SPOR BÜLTENİ", badge, p_path, accent=ACCENT_RED)
         concise_detail = _trim_to_sentence(st["spoken_detail"], 340 if len(selected) == 2 else 245)
         clean_hl = st["headline"].rstrip("!")
         seg_vo = f"{intros[idx]} {clean_hl}! {concise_detail}"
-        scenes.append((p_path, seg_vo))
+        specs.append(_story_to_motion_spec(st, "GÜNÜN SPOR BÜLTENİ", badge, seg_vo, accent=ACCENT_RED))
 
     lead = selected[0]
     clean_lead_hl = lead["headline"].rstrip("!")
@@ -1044,11 +1076,11 @@ def build_headlines_short() -> Tuple[List[Tuple[Path, str]], str]:
         f"{bullet_block}\n\n"
         f"💬 Günün gelişmeleri hakkında siz ne düşünüyorsunuz? Yorumlarda buluşalım!"
     )
-    return scenes, caption
+    return specs, caption
 
 
-def build_biography_short(target_date: datetime.date) -> Tuple[Path, str, str]:
-    """Saatlik Tekrarsız Futbolcu Biyografisi"""
+def build_biography_short(target_date: datetime.date) -> Tuple[List[Dict[str, Any]], str]:
+    """Saatlik Tekrarsız Futbolcu Biyografisi (Graph-Motion Timeline)"""
     recent_titles = fetch_recent_channel_titles()
     tz_tr = datetime.timezone(datetime.timedelta(hours=3))
     hour_now = datetime.datetime.now(tz_tr).hour
@@ -1076,35 +1108,17 @@ def build_biography_short(target_date: datetime.date) -> Tuple[Path, str, str]:
         bio = BIOGRAPHIES[start_idx]
     photo = fetch_wiki_image(bio["wiki_tr"], lang="tr") or fetch_wiki_image(bio["wiki_en"], lang="en")
 
-    img = build_broadcast_background(photo, accent=ACCENT_GOLD)
-    if photo is not None:
-        paste_hero_photo_card(img, photo, (48, 175, WIDTH - 48, 880), border_col=ACCENT_GOLD)
-    draw = ImageDraw.Draw(img)
-    draw_top_masthead(draw, "FUTBOLCU BİYOGRAFİSİ", accent=(195, 135, 10))
-
-    # İsim & Unvan Bandı
-    draw.rounded_rectangle([48, 902, WIDTH - 48, 1092], radius=22, fill=CARD_NAVY, outline=ACCENT_GOLD, width=3)
-    f_name = load_impact_font(76)
-    ntb = draw.textbbox((0, 0), tr_upper(bio["name"]), font=f_name)
-    draw.text(((WIDTH - (ntb[2] - ntb[0])) // 2, 916), tr_upper(bio["name"]), font=f_name, fill=TEXT_WHITE)
-
-    f_sub = load_font(27, True)
-    stb = draw.textbbox((0, 0), bio["subtitle"], font=f_sub)
-    draw.text(((WIDTH - (stb[2] - stb[0])) // 2, 1012), bio["subtitle"], font=f_sub, fill=ACCENT_GOLD)
-
-    # 3 Kariyer Notu Kartı
-    facts = [bio["fact1"], bio["fact2"], bio["fact3"]]
-    for idx, fc in enumerate(facts):
-        fy1 = 1116 + idx * 222
-        fy2 = fy1 + 202
-        draw.rounded_rectangle([48, fy1, WIDTH - 48, fy2], radius=20, fill=(11, 20, 38), outline=(50, 82, 132), width=2)
-        draw.ellipse([70, fy1 + 26, 114, fy1 + 70], fill=ACCENT_GOLD)
-        draw.text((84, fy1 + 30), str(idx + 1), font=load_font(26, True), fill=(10, 16, 28))
-        draw_wrapped_text(draw, fc, 134, fy1 + 26, WIDTH - 204, load_font(28, True), fill=TEXT_WHITE, line_spacing=7)
-
-    poster_path = ASSETS_DIR / "yt_biography_poster.jpg"
-    img.save(poster_path, quality=95)
-
+    spec = {
+        "kind": "story",
+        "masthead": "FUTBOLCU BİYOGRAFİSİ",
+        "badge": bio["subtitle"],
+        "headline": f"{bio['name']} KARİYER HİKAYESİ",
+        "bullets": [bio["fact1"], bio["fact2"], bio["fact3"]],
+        "photo": photo,
+        "accent": (210, 145, 12),
+        "ticker": f"{bio['name']}  •  {bio['subtitle']}",
+        "vo": bio["vo"],
+    }
     caption = (
         f"⭐ EFSANE PORTRE: {bio['name']} Hikayesi! ⚽👑\n\n"
         f"📌 {bio['subtitle']}\n"
@@ -1113,11 +1127,11 @@ def build_biography_short(target_date: datetime.date) -> Tuple[Path, str, str]:
         f"🔹 {bio['fact3']}\n\n"
         f"💬 Sıradaki videoda hangi futbolcunun hikayesini görmek istersiniz? Yorumlara yazın!"
     )
-    return poster_path, bio["vo"], caption
+    return [spec], caption
 
 
-def build_breaking_short() -> Tuple[List[Tuple[Path, str]], str]:
-    """Son Dakika Futbol & Transfer Gelişmesi (Kanal geçmişine göre tekrarsız, tam detaylı)"""
+def build_breaking_short() -> Tuple[List[Dict[str, Any]], str]:
+    """Son Dakika Futbol & Transfer Gelişmesi (Graph-Motion, kanal geçmişine göre tekrarsız)"""
     recent_titles = fetch_recent_channel_titles()
     all_stories = fetch_rich_football_news(limit=8, prefer_breaking=True)
     stories = [
@@ -1127,13 +1141,10 @@ def build_breaking_short() -> Tuple[List[Tuple[Path, str]], str]:
     if not stories:
         return build_headlines_short()
 
-    # Sabah bülteninden farklı taze haber önceliği; yeterli detay varsa 2 sıcak gelişmeyi detaylarıyla aktar
     picked = stories[:2] if len(stories) >= 2 else stories[:1]
-    scenes: List[Tuple[Path, str]] = []
+    specs: List[Dict[str, Any]] = []
     for idx, st in enumerate(picked):
         badge = f"SICAK GELİŞME #{idx + 1}"
-        p_path = ASSETS_DIR / f"yt_breaking_scene_{idx + 1}.jpg"
-        _render_detailed_story_poster(st, "SON DAKİKA FUTBOL", badge, p_path, accent=ACCENT_RED)
         full_detail = " ".join([_prepare_spoken_news_sentence(p) for p in st.get("paragraphs", [])[:2]]).strip()
         full_detail = _trim_to_sentence(full_detail or st["spoken_detail"], 320 if len(picked) == 1 else 250)
         lead_phrase = "Futbol gündeminden sıcak gelişme!" if idx == 0 else "Gündemin bir diğer önemli gelişmesinde ise:"
@@ -1141,7 +1152,7 @@ def build_breaking_short() -> Tuple[List[Tuple[Path, str]], str]:
         seg_vo = f"{lead_phrase} {clean_hl}! {full_detail}"
         if idx == len(picked) - 1:
             seg_vo += " Siz bu gelişmeyi nasıl değerlendiriyorsunuz? Yorumlara yazın!"
-        scenes.append((p_path, seg_vo))
+        specs.append(_story_to_motion_spec(st, "SON DAKİKA FUTBOL", badge, seg_vo, accent=ACCENT_RED))
 
     main_st = picked[0]
     details_txt = "\n\n".join([f"📌 {s['headline']}\n🔹 {_trim_to_sentence(s['spoken_detail'], 220)}" for s in picked])
@@ -1150,11 +1161,11 @@ def build_breaking_short() -> Tuple[List[Tuple[Path, str]], str]:
         f"{details_txt}\n\n"
         f"💬 Siz bu gelişme hakkında ne düşünüyorsunuz? Yorumlara yazın!"
     )
-    return scenes, caption
+    return specs, caption
 
 
-def build_trivia_short(target_date: datetime.date) -> Tuple[Path, str, str]:
-    """Futbol Genel Kültürü & İlginç Bilgiler (Kanal geçmişine göre tekrarsız)"""
+def build_trivia_short(target_date: datetime.date) -> Tuple[List[Dict[str, Any]], str]:
+    """Futbol Genel Kültürü & İlginç Bilgiler (Graph-Motion Timeline)"""
     recent_titles = fetch_recent_channel_titles()
     tz_tr = datetime.timezone(datetime.timedelta(hours=3))
     hour_now = datetime.datetime.now(tz_tr).hour
@@ -1167,36 +1178,17 @@ def build_trivia_short(target_date: datetime.date) -> Tuple[Path, str, str]:
             break
     photo = fetch_wiki_image(trv["wiki_en"], lang="en")
 
-    img = build_broadcast_background(photo, accent=ACCENT_CYAN)
-    if photo is not None:
-        paste_hero_photo_card(img, photo, (48, 180, WIDTH - 48, 825), border_col=ACCENT_CYAN)
-    draw = ImageDraw.Draw(img)
-    draw_top_masthead(draw, "BİLİYOR MUYDUNUZ?", accent=(14, 116, 175))
-
-    # Manşet Bandı
-    draw.rounded_rectangle([48, 852, WIDTH - 48, 1085], radius=22, fill=CARD_NAVY, outline=ACCENT_GOLD, width=3)
-    draw_wrapped_text(
-        draw,
-        trv["headline"],
-        76,
-        882,
-        WIDTH - 152,
-        load_impact_font(56),
-        fill=ACCENT_GOLD,
-        line_spacing=10,
-        center=True,
-    )
-
-    # 3 Hikaye Paragrafı
-    for idx, btxt in enumerate([trv["body1"], trv["body2"], trv["body3"]]):
-        by1 = 1112 + idx * 226
-        by2 = by1 + 206
-        draw.rounded_rectangle([48, by1, WIDTH - 48, by2], radius=20, fill=(11, 20, 38), outline=(56, 189, 248), width=2)
-        draw_wrapped_text(draw, btxt, 76, by1 + 28, WIDTH - 152, load_font(29, True), fill=TEXT_WHITE, line_spacing=8)
-
-    poster_path = ASSETS_DIR / "yt_trivia_poster.jpg"
-    img.save(poster_path, quality=95)
-
+    spec = {
+        "kind": "story",
+        "masthead": "BİLİYOR MUYDUNUZ?",
+        "badge": trv.get("badge", "FUTBOL KÜLTÜRÜ"),
+        "headline": trv["headline"],
+        "bullets": [trv["body1"], trv["body2"], trv["body3"]],
+        "photo": photo,
+        "accent": (14, 136, 198),
+        "ticker": f"FUTBOL GENEL KÜLTÜRÜ  •  {trv['headline']}",
+        "vo": trv["vo"],
+    }
     caption = (
         f"🧠 FUTBOL GENEL KÜLTÜRÜ: {trv['headline']} ⚽😲\n\n"
         f"🔹 {trv['body1']}\n"
@@ -1204,7 +1196,7 @@ def build_trivia_short(target_date: datetime.date) -> Tuple[Path, str, str]:
         f"🔹 {trv['body3']}\n\n"
         f"💬 Bu ilginç bilgiyi daha önce duymuş muydunuz? Yorumlara yazın!"
     )
-    return poster_path, trv["vo"], caption
+    return [spec], caption
 
 
 def _fetch_mackolik_day_matches(target_date: datetime.date) -> List[Dict[str, Any]]:
@@ -1270,8 +1262,8 @@ def _fetch_mackolik_day_matches(target_date: datetime.date) -> List[Dict[str, An
     return out
 
 
-def build_pre_match_short(target_date: datetime.date) -> Tuple[List[Tuple[Path, str]], str]:
-    """Maç Önü İstatistikleri & Form Karşılaştırması (Sıfır İddaa/Oran, tekrarsız maç seçimi)"""
+def build_pre_match_short(target_date: datetime.date) -> Tuple[List[Dict[str, Any]], str]:
+    """Maç Önü İstatistikleri & Canlı Büyüyen Graph-Motion Karşılaştırma Barları"""
     recent_titles = fetch_recent_channel_titles(max_results=18)
     matches = _fetch_mackolik_day_matches(target_date)
     upcoming = [m for m in matches if m["status"] in ("", "0", "Başlamadı")] or matches
@@ -1286,88 +1278,64 @@ def build_pre_match_short(target_date: datetime.date) -> Tuple[List[Tuple[Path, 
     h_last5 = fetch_team_last_5_matches(m["home_id"], m["home"], target_date)
     a_last5 = fetch_team_last_5_matches(m["away_id"], m["away"], target_date)
 
-    img = build_broadcast_background(None, accent=ACCENT_GOLD)
-    draw = ImageDraw.Draw(img)
-    draw_top_masthead(draw, "MAÇ ÖNÜ İSTATİSTİK", accent=(195, 135, 10))
-
-    # Lig ve Saat Başlığı
-    lg_txt = f"{tr_upper(m['country'])}  •  {tr_upper(m['league_sub'])}  •  SAAT {m['time']}"
-    f_lg = load_font(27, True)
-    ltb = draw.textbbox((0, 0), lg_txt, font=f_lg)
-    draw.text(((WIDTH - (ltb[2] - ltb[0])) // 2, 178), lg_txt, font=f_lg, fill=ACCENT_CYAN)
-
-    # İki Takım Arması + VS Sahnesi
-    draw.rounded_rectangle([48, 232, WIDTH - 48, 690], radius=26, fill=CARD_NAVY, outline=ACCENT_GOLD, width=3)
-    h_crest = fetch_team_crest(m["home_id"], target_size=220)
-    a_crest = fetch_team_crest(m["away_id"], target_size=220)
-    img.paste(h_crest, (235 - 110, 415 - 110), h_crest)
-    img.paste(a_crest, (845 - 110, 415 - 110), a_crest)
-    draw = ImageDraw.Draw(img)
-
-    draw.ellipse([460, 335, 620, 495], fill=ACCENT_RED, outline=ACCENT_GOLD, width=5)
-    f_vs = load_impact_font(76)
-    vtb = draw.textbbox((0, 0), "VS", font=f_vs)
-    draw.text((540 - (vtb[2] - vtb[0]) // 2, 368), "VS", font=f_vs, fill=TEXT_WHITE)
-
-    f_tn = load_font(32, True)
-    for cx, nm in [(235, tr_upper(m["home"])[:15]), (845, tr_upper(m["away"])[:15])]:
-        ntb = draw.textbbox((0, 0), nm, font=f_tn)
-        draw.text((cx - (ntb[2] - ntb[0]) // 2, 565), nm, font=f_tn, fill=TEXT_WHITE)
-
-    # Karşılaştırmalı Son 5 Maç Form ve Gol İstatistikleri
-    def calc_stats(l5: List[Dict[str, Any]], tid: int) -> Tuple[str, int, int, int]:
-        form_str = " - ".join([x["result"] for x in l5[:5]]) if l5 else "Veri Yok"
+    def calc_stats(l5: List[Dict[str, Any]], tid: int) -> Tuple[List[str], int, int, int, int]:
+        forms = [x["result"] for x in l5[:5]]
         w = sum(1 for x in l5 if x["result"] == "G")
+        d = sum(1 for x in l5 if x["result"] == "B")
+        pts = w * 3 + d
         gf = sum(x["home_goals"] if x["home_id"] == tid else x["away_goals"] for x in l5)
         ga = sum(x["away_goals"] if x["home_id"] == tid else x["home_goals"] for x in l5)
-        return form_str, w, gf, ga
+        return forms, w, pts, gf, ga
 
-    h_form, h_w, h_gf, h_ga = calc_stats(h_last5, m["home_id"])
-    a_form, a_w, a_gf, a_ga = calc_stats(a_last5, m["away_id"])
+    h_forms, h_w, h_pts, h_gf, h_ga = calc_stats(h_last5, m["home_id"])
+    a_forms, a_w, a_pts, a_gf, a_ga = calc_stats(a_last5, m["away_id"])
 
-    rows = [
-        ("SON 5 MAÇ FORMU", h_form, a_form),
-        ("SON 5 MAÇ GALİBİYET", f"{h_w} Galibiyet", f"{a_w} Galibiyet"),
-        ("SON 5 MAÇ ATILAN GOL", f"{h_gf} Gol", f"{a_gf} Gol"),
-        ("SON 5 MAÇ YENİLEN GOL", f"{h_ga} Gol", f"{a_ga} Gol"),
+    h_crest = fetch_team_crest(m["home_id"], target_size=195)
+    a_crest = fetch_team_crest(m["away_id"], target_size=195)
+
+    bars = [
+        {"label": "SON 5 MAÇ TOPLANAN PUAN", "home_val": h_pts, "away_val": a_pts, "suffix": " Puan"},
+        {"label": "SON 5 MAÇ GALİBİYET SAYISI", "home_val": h_w, "away_val": a_w, "suffix": " Galibiyet"},
+        {"label": "SON 5 MAÇ ATILAN GOL", "home_val": h_gf, "away_val": a_gf, "suffix": " Gol"},
+        {"label": "SAVUNMA DİRENCİ (YENİLEN GOL)", "home_val": h_ga, "away_val": a_ga, "suffix": " Gol"},
     ]
-    for idx, (label, hv, av) in enumerate(rows):
-        ry1 = 725 + idx * 245
-        ry2 = ry1 + 218
-        draw.rounded_rectangle([48, ry1, WIDTH - 48, ry2], radius=22, fill=(11, 20, 38), outline=(50, 82, 132), width=2)
-        f_rlbl = load_font(25, True)
-        rtb = draw.textbbox((0, 0), label, font=f_rlbl)
-        draw.text(((WIDTH - (rtb[2] - rtb[0])) // 2, ry1 + 24), label, font=f_rlbl, fill=ACCENT_GOLD)
-
-        f_rval = load_impact_font(50)
-        htb = draw.textbbox((0, 0), hv, font=f_rval)
-        atb = draw.textbbox((0, 0), av, font=f_rval)
-        draw.text((260 - (htb[2] - htb[0]) // 2, ry1 + 98), hv, font=f_rval, fill=TEXT_WHITE)
-        draw.text((820 - (atb[2] - atb[0]) // 2, ry1 + 98), av, font=f_rval, fill=ACCENT_CYAN)
-        draw.line([(540, ry1 + 82), (540, ry2 - 24)], fill=(45, 70, 110), width=2)
-
-    poster_path = ASSETS_DIR / "yt_prematch_poster.jpg"
-    img.save(poster_path, quality=95)
 
     vo = (
-        f"Maç önü istatistik ekranında günün dev randevusu! "
+        f"Maç önü grafik analiz ekranında günün kritik randevusu! "
         f"{m['country']} heyecanında saat {m['time']}'de {m['home']} ile {m['away']} karşı karşıya geliyor! "
-        f"Ev sahibi {m['home']} son beş maçında {h_w} galibiyet alırken rakip ağlara {h_gf} gol gönderdi. "
-        f"Konuk ekip {m['away']} ise son beş maçında {a_w} galibiyet ve {a_gf} gol kaydetti! "
-        f"Sizce bu kritik mücadeleden hangi takım galip ayrılır? Skor tahminlerinizi yorumlara bekliyoruz!"
+        f"Ev sahibi {m['home']} son beş maçında {h_w} galibiyetle {h_pts} puan toplarken rakip ağlara {h_gf} gol gönderdi. "
+        f"Konuk ekip {m['away']} ise son beş maçında {a_w} galibiyet, {a_pts} puan ve {a_gf} gol kaydetti! "
+        f"Sizce bu mücadeleden hangi takım galip ayrılır? Skor tahminlerinizi yorumlara yazın!"
     )
+    spec = {
+        "kind": "stats",
+        "masthead": "MAÇ ÖNÜ GRAFİK ANALİZ",
+        "accent": (210, 145, 12),
+        "sub_header": f"{tr_upper(m['country'])}  •  {tr_upper(m['league_sub'])}  •  SAAT {m['time']}",
+        "home_name": m["home"],
+        "away_name": m["away"],
+        "home_crest": h_crest,
+        "away_crest": a_crest,
+        "center_badge": "VS",
+        "home_forms": h_forms,
+        "away_forms": a_forms,
+        "bars": bars,
+        "ticker": f"{m['home']} - {m['away']} MAÇ ÖNÜ FORM VE GOL GRAFİĞİ",
+        "vo": vo,
+    }
     caption = (
-        f"📊 MAÇ ÖNÜ ANALİZ: {m['home']} - {m['away']} İstatistikleri! ⚽🔥\n\n"
+        f"📊 MAÇ ÖNÜ GRAFİK ANALİZ: {m['home']} - {m['away']}! ⚽🔥\n\n"
         f"🏆 {m['country']} - {m['league_sub']} | Saat: {m['time']}\n"
-        f"🔹 {m['home']} Son 5 Maç: {h_w} Galibiyet, {h_gf} Gol\n"
-        f"🔹 {m['away']} Son 5 Maç: {a_w} Galibiyet, {a_gf} Gol\n\n"
+        f"🔹 {m['home']} Son 5 Maç: {h_pts} Puan, {h_w} Galibiyet, {h_gf} Gol\n"
+        f"🔹 {m['away']} Son 5 Maç: {a_pts} Puan, {a_w} Galibiyet, {a_gf} Gol\n\n"
         f"💬 Sizce bu karşılaşma kaç kaç biter? Yorumlara tahmininizi yazın!"
     )
-    return [(poster_path, vo)], caption
+    return [spec], caption
 
 
-def build_post_match_short(target_date: datetime.date) -> Tuple[List[Tuple[Path, str]], str]:
-    """6) 22:00 - Günün Maç Sonu Analizi & Skor Özeti"""
+def build_post_match_short(target_date: datetime.date) -> Tuple[List[Dict[str, Any]], str]:
+    """Günün Maç Sonu Analizi & Kinetik Skor Grafiği"""
+    recent_titles = fetch_recent_channel_titles(max_results=18)
     matches = _fetch_mackolik_day_matches(target_date)
     finished = [m for m in matches if m["status"] in ("MS", "Uz.", "Pen.", "Bitti")]
     if not finished:
@@ -1376,38 +1344,13 @@ def build_post_match_short(target_date: datetime.date) -> Tuple[List[Tuple[Path,
     if not finished:
         return build_headlines_short()
 
-    top = finished[0]
-    others = finished[1:5]
+    fresh_fin = [
+        x for x in finished
+        if not any(x["home"].lower() in rt and x["away"].lower() in rt for rt in recent_titles)
+    ]
+    top = fresh_fin[0] if fresh_fin else finished[0]
+    others_raw = [x for x in finished if x["match_id"] != top["match_id"]][:4]
 
-    img = build_broadcast_background(None, accent=ACCENT_RED)
-    draw = ImageDraw.Draw(img)
-    draw_top_masthead(draw, "MAÇ SONU ANALİZİ", accent=ACCENT_RED)
-
-    # Ana Biten Maç Skor Tabelası
-    draw.rounded_rectangle([48, 178, WIDTH - 48, 760], radius=28, fill=CARD_NAVY, outline=ACCENT_GOLD, width=3)
-    lg_txt = f"MAÇ SONUCU  •  {tr_upper(top['country'])}"
-    f_lg = load_font(27, True)
-    ltb = draw.textbbox((0, 0), lg_txt, font=f_lg)
-    draw.text(((WIDTH - (ltb[2] - ltb[0])) // 2, 204), lg_txt, font=f_lg, fill=ACCENT_GOLD)
-
-    h_crest = fetch_team_crest(top["home_id"], target_size=210)
-    a_crest = fetch_team_crest(top["away_id"], target_size=210)
-    img.paste(h_crest, (215 - 105, 430 - 105), h_crest)
-    img.paste(a_crest, (865 - 105, 430 - 105), a_crest)
-    draw = ImageDraw.Draw(img)
-
-    # Dev Skor Kutusu
-    draw.rounded_rectangle([380, 355, 700, 505], radius=22, fill=(6, 12, 24), outline=ACCENT_GOLD, width=4)
-    f_sc = load_impact_font(96)
-    sctb = draw.textbbox((0, 0), top["score"], font=f_sc)
-    draw.text((540 - (sctb[2] - sctb[0]) // 2, 372), top["score"], font=f_sc, fill=ACCENT_GOLD)
-
-    f_tn = load_font(32, True)
-    for cx, nm in [(215, tr_upper(top["home"])[:14]), (865, tr_upper(top["away"])[:14])]:
-        ntb = draw.textbbox((0, 0), nm, font=f_tn)
-        draw.text((cx - (ntb[2] - ntb[0]) // 2, 575), nm, font=f_tn, fill=TEXT_WHITE)
-
-    # Maç Özeti Yorum Satırı
     if top["hg"] > top["ag"]:
         verdict = f"{top['home']} sahadan {top['score']}'lık net galibiyetle ayrıldı!"
     elif top["ag"] > top["hg"]:
@@ -1415,47 +1358,48 @@ def build_post_match_short(target_date: datetime.date) -> Tuple[List[Tuple[Path,
     else:
         verdict = f"Büyük çekişmeye sahne olan mücadele {top['score']} eşitlikle sona erdi!"
 
-    vtb = draw.textbbox((0, 0), verdict, font=load_font(27, True))
-    draw.text(((WIDTH - (vtb[2] - vtb[0])) // 2, 682), verdict, font=load_font(27, True), fill=ACCENT_CYAN)
+    other_items = []
+    for om in others_raw:
+        other_items.append({
+            "home": om["home"],
+            "away": om["away"],
+            "hg": om["hg"],
+            "ag": om["ag"],
+            "score": om["score"],
+            "home_crest": fetch_team_crest(om["home_id"], target_size=80),
+            "away_crest": fetch_team_crest(om["away_id"], target_size=80),
+        })
 
-    # Günün Diğer Tamamlanan Maçları
-    draw.text((56, 795), "GÜNÜN DİĞER TAMAMLANAN KARŞILAŞMALARI", font=load_font(26, True), fill=ACCENT_GOLD)
-    for idx, om in enumerate(others):
-        oy1 = 850 + idx * 215
-        oy2 = oy1 + 190
-        draw.rounded_rectangle([48, oy1, WIDTH - 48, oy2], radius=20, fill=(11, 20, 38), outline=(45, 75, 120), width=2)
-        hc = fetch_team_crest(om["home_id"], target_size=82)
-        ac = fetch_team_crest(om["away_id"], target_size=82)
-        img.paste(hc, (78, oy1 + 54), hc)
-        img.paste(ac, (WIDTH - 160, oy1 + 54), ac)
-        draw = ImageDraw.Draw(img)
-
-        draw.text((180, oy1 + 74), om["home"][:14], font=load_font(30, True), fill=TEXT_WHITE)
-        atb = draw.textbbox((0, 0), om["away"][:14], font=load_font(30, True))
-        draw.text((WIDTH - 180 - (atb[2] - atb[0]), oy1 + 74), om["away"][:14], font=load_font(30, True), fill=TEXT_WHITE)
-
-        draw.rounded_rectangle([460, oy1 + 48, 620, oy2 - 48], radius=14, fill=CARD_NAVY, outline=ACCENT_GOLD, width=2)
-        ostb = draw.textbbox((0, 0), om["score"], font=load_impact_font(48))
-        draw.text((540 - (ostb[2] - ostb[0]) // 2, oy1 + 64), om["score"], font=load_impact_font(48), fill=ACCENT_GOLD)
-
-    poster_path = ASSETS_DIR / "yt_postmatch_poster.jpg"
-    img.save(poster_path, quality=95)
-
-    other_spoken = ", ".join([f"{x['home']} {x['hg']}, {x['away']} {x['ag']}" for x in others[:3]])
+    other_spoken = ", ".join([f"{x['home']} {x['hg']}, {x['away']} {x['ag']}" for x in others_raw[:3]])
     vo = (
-        f"Maç sonu analiz ekranında günün sonuçları! "
+        f"Maç sonu grafik analiz ekranında günün sonuçları! "
         f"Günün öne çıkan mücadelesinde {verdict} "
-        + (f"Günün diğer karşılaşmalarında ise {other_spoken} skorları kaydedildi. " if other_spoken else "")
+        + (f"Tamamlanan diğer karşılaşmalarda ise {other_spoken} skorları kaydedildi. " if other_spoken else "")
         + "Maçın yıldızı sizce kimdi? Yorumlarda değerlendirelim!"
     )
-    other_lines = "\n".join([f"⚽ {x['home']} {x['score']} {x['away']}" for x in others])
+    spec = {
+        "kind": "stats",
+        "masthead": "MAÇ SONU SKOR GRAFİĞİ",
+        "accent": ACCENT_RED,
+        "sub_header": f"MAÇ SONUCU  •  {tr_upper(top['country'])}",
+        "home_name": top["home"],
+        "away_name": top["away"],
+        "home_crest": fetch_team_crest(top["home_id"], target_size=195),
+        "away_crest": fetch_team_crest(top["away_id"], target_size=195),
+        "center_badge": top["score"],
+        "verdict": verdict,
+        "other_matches": other_items,
+        "ticker": f"MAÇ SONUCU: {top['home']} {top['score']} {top['away']}",
+        "vo": vo,
+    }
+    other_lines = "\n".join([f"⚽ {x['home']} {x['score']} {x['away']}" for x in others_raw])
     caption = (
         f"🏁 MAÇ SONU ANALİZİ: {top['home']} {top['score']} {top['away']}! ⚽🔥\n\n"
         f"📌 {verdict}\n"
         + (f"\n📊 Günün Diğer Sonuçları:\n{other_lines}\n" if other_lines else "")
         + "\n💬 Karşılaşmanın performansını nasıl buldunuz? Yorumlara yazın!"
     )
-    return [(poster_path, vo)], caption
+    return [spec], caption
 
 
 def render_subscribe_outro_frame(frame: Image.Image, draw: ImageDraw.ImageDraw, elapsed: float, dur: float) -> None:
@@ -1729,26 +1673,24 @@ def main() -> None:
         else datetime.datetime.now(tz_tr).date()
     )
 
-    scenes: List[Tuple[Path, str]]
+    specs: List[Dict[str, Any]]
     if args.mode == "headlines":
-        scenes, cap = build_headlines_short()
+        specs, cap = build_headlines_short()
     elif args.mode == "biography":
-        p, v, cap = build_biography_short(target_date)
-        scenes = [(p, v)]
+        specs, cap = build_biography_short(target_date)
     elif args.mode == "breaking":
-        scenes, cap = build_breaking_short()
+        specs, cap = build_breaking_short()
     elif args.mode == "trivia":
-        p, v, cap = build_trivia_short(target_date)
-        scenes = [(p, v)]
+        specs, cap = build_trivia_short(target_date)
     elif args.mode == "pre_match":
-        scenes, cap = build_pre_match_short(target_date)
+        specs, cap = build_pre_match_short(target_date)
     else:
-        scenes, cap = build_post_match_short(target_date)
+        specs, cap = build_post_match_short(target_date)
 
     out_video = OUTPUT_DIR / f"yt_short_{args.mode}.mp4"
-    print(f"[1/2] '{args.mode}' kategorisinde ({len(scenes)} sahneli) Spor Shorts videosu üretiliyor...")
-    render_multi_scene_short_mp4(scenes, out_video)
-    print(f"[OK] Video hazır: {out_video}")
+    print(f"[1/2] '{args.mode}' kategorisinde ({len(specs)} sahneli Graph-Motion) Spor Shorts üretiliyor...")
+    render_graph_motion_mp4(specs, out_video)
+    print(f"[OK] Graph-Motion video hazır: {out_video}")
 
     if args.upload:
         upload_short(out_video, cap)

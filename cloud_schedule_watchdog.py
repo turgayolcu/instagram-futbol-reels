@@ -48,9 +48,11 @@ def get_github_token() -> str:
 def main() -> None:
     tz_tr = datetime.timezone(datetime.timedelta(hours=3))
     now_tr = datetime.datetime.now(tz_tr)
-    hour_tr = now_tr.hour
+    # :57'de çalıştığında hedef saat bir sonraki saat başıdır (örn. 13:57 -> 14:00)
+    target_dt = now_tr + datetime.timedelta(minutes=10) if now_tr.minute >= 50 else now_tr
+    hour_tr = target_dt.hour
 
-    # Sadece 08:00 - 00:15 (24:00 kuşağı dahil) saatleri arasında çalış; 01:00 - 07:59 arası gece uykusu
+    # Sadece 08:00 - 00:15 (24:00 kuşağı dahil) saatleri arasında çalış; 01:00 - 07:45 arası gece uykusu
     if 1 <= hour_tr <= 7 and len(sys.argv) <= 1:
         return
 
