@@ -240,6 +240,12 @@ def upload_short(video_path: Path, caption: str, privacy_status: str = "public")
             raise
 
     if last_err is not None:
+        if "uploadLimitExceeded" in str(last_err):
+            print(
+                "[BİLGİ] YouTube kanalının son 24 saatlik yükleme limiti (10 video/24 saat) şu an dolu. "
+                "Eski videolar 24 saati doldurdukça sonraki saat başlarında otomatik yükleme devam edecek."
+            )
+            return "DEFERRED_CHANNEL_DAILY_LIMIT"
         raise last_err
     return None
 
